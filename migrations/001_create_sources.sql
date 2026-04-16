@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS sources (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    scrape_interval_minutes INTEGER NOT NULL DEFAULT 60,
+    last_scraped_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+

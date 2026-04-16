@@ -1,0 +1,6 @@
+.env
+codex_instructions.md
+docs/
+*.go.[0-9]*
+*.md.[0-9]*
+*.sql.[0-9]*
