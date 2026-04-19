@@ -11,6 +11,7 @@ import (
 	"job_aggregator/internal/database"
 	applogger "job_aggregator/internal/logger"
 	"job_aggregator/internal/repository"
+	"job_aggregator/internal/services/pipeline"
 	transporthandlers "job_aggregator/internal/transport/http/handlers"
 	transportroutes "job_aggregator/internal/transport/http/routes"
 )
@@ -22,7 +23,11 @@ type App struct {
 	SourceRepository     *repository.SourceRepository
 	JobRepository        *repository.JobRepository
 	JobRawDataRepository *repository.JobRawDataRepository
+	PipelineService      *pipeline.Service
 	HealthHandler        *transporthandlers.HealthHandler
+	JobHandler           *transporthandlers.JobHandler
+	SourceHandler        *transporthandlers.SourceHandler
+	WorkerHandler        *transporthandlers.WorkerHandler
 	Server               *http.Server
 }
 
@@ -42,9 +47,13 @@ func NewApp() (*App, error) {
 	sourceRepo := repository.NewSourceRepository(db)
 	jobRepo := repository.NewJobRepository(db)
 	jobRawDataRepo := repository.NewJobRawDataRepository(db)
+	pipelineService := pipeline.NewService(logger, sourceRepo, jobRepo, jobRawDataRepo)
 
 	healthHandler := transporthandlers.NewHealthHandler(cfg, db)
-	router := transportroutes.New(healthHandler)
+	jobHandler := transporthandlers.NewJobHandler(logger, jobRepo)
+	sourceHandler := transporthandlers.NewSourceHandler(sourceRepo)
+	workerHandler := transporthandlers.NewWorkerHandler(logger, pipelineService)
+	router := transportroutes.New(healthHandler, jobHandler, sourceHandler, workerHandler)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.App.Port,
@@ -61,7 +70,11 @@ func NewApp() (*App, error) {
 		SourceRepository:     sourceRepo,
 		JobRepository:        jobRepo,
 		JobRawDataRepository: jobRawDataRepo,
+		PipelineService:      pipelineService,
 		HealthHandler:        healthHandler,
+		JobHandler:           jobHandler,
+		SourceHandler:        sourceHandler,
+		WorkerHandler:        workerHandler,
 		Server:               server,
 	}, nil
 }

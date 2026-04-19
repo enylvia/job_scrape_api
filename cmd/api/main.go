@@ -19,8 +19,11 @@ func main() {
 		log.Fatalf("bootstrap app: %v", err)
 	}
 
+	app.Logger.Printf("router initialized: health=/health internal=/internal/*")
+
 	go func() {
 		app.Logger.Printf("starting %s on %s", app.Config.App.Name, app.Server.Addr)
+		app.Logger.Printf("http server is ready to accept requests on %s", app.Server.Addr)
 		if err := app.Server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			app.Logger.Fatalf("start server: %v", err)
 		}

@@ -4,9 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
+	"time"
 
 	"job_aggregator/internal/models"
 )
+
+type JobListFilter struct {
+	Status      string
+	SourceID    *int64
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
+	Limit       int
+}
 
 type JobRepository struct {
 	db *sql.DB
@@ -198,6 +208,113 @@ func (r *JobRepository) ListByStatus(ctx context.Context, status string) ([]mode
 	return jobs, nil
 }
 
+func (r *JobRepository) List(ctx context.Context, filter JobListFilter) ([]models.Job, error) {
+	if r.db == nil {
+		return []models.Job{}, nil
+	}
+
+	var (
+		queryBuilder strings.Builder
+		args         []any
+		conditions   []string
+	)
+
+	queryBuilder.WriteString(`
+		SELECT
+			id, source_id, source_job_url, source_apply_url, title, slug, company, location,
+			employment_type, category, salary_min, salary_max, currency, description, requirements,
+			benefits, posted_at, expired_at, content_hash, status, duplicate_of_job_id,
+			wordpress_post_id, telegram_sent, created_at, updated_at
+		FROM jobs
+	`)
+
+	if strings.TrimSpace(filter.Status) != "" {
+		args = append(args, strings.TrimSpace(filter.Status))
+		conditions = append(conditions, fmt.Sprintf("status = $%d", len(args)))
+	}
+
+	if filter.SourceID != nil {
+		args = append(args, *filter.SourceID)
+		conditions = append(conditions, fmt.Sprintf("source_id = $%d", len(args)))
+	}
+
+	if filter.CreatedFrom != nil {
+		args = append(args, *filter.CreatedFrom)
+		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", len(args)))
+	}
+
+	if filter.CreatedTo != nil {
+		args = append(args, *filter.CreatedTo)
+		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", len(args)))
+	}
+
+	if len(conditions) > 0 {
+		queryBuilder.WriteString(" WHERE ")
+		queryBuilder.WriteString(strings.Join(conditions, " AND "))
+	}
+
+	queryBuilder.WriteString(" ORDER BY created_at DESC, id DESC")
+
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	args = append(args, limit)
+	queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", len(args)))
+
+	rows, err := r.db.QueryContext(ctx, queryBuilder.String(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("query jobs: %w", err)
+	}
+	defer rows.Close()
+
+	jobs := make([]models.Job, 0)
+	for rows.Next() {
+		var job models.Job
+		if err := rows.Scan(
+			&job.ID,
+			&job.SourceID,
+			&job.SourceJobURL,
+			&job.SourceApplyURL,
+			&job.Title,
+			&job.Slug,
+			&job.Company,
+			&job.Location,
+			&job.EmploymentType,
+			&job.Category,
+			&job.SalaryMin,
+			&job.SalaryMax,
+			&job.Currency,
+			&job.Description,
+			&job.Requirements,
+			&job.Benefits,
+			&job.PostedAt,
+			&job.ExpiredAt,
+			&job.ContentHash,
+			&job.Status,
+			&job.DuplicateOfJobID,
+			&job.WordPressPostID,
+			&job.TelegramSent,
+			&job.CreatedAt,
+			&job.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan jobs: %w", err)
+		}
+
+		jobs = append(jobs, job)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate jobs: %w", err)
+	}
+
+	return jobs, nil
+}
+
 func (r *JobRepository) UpdateNormalized(ctx context.Context, job models.Job) error {
 	if r.db == nil {
 		return fmt.Errorf("database is not configured")
@@ -239,6 +356,67 @@ func (r *JobRepository) UpdateNormalized(ctx context.Context, job models.Job) er
 	)
 	if err != nil {
 		return fmt.Errorf("update normalized job: %w", err)
+	}
+
+	return nil
+}
+
+func (r *JobRepository) UpdateEditable(ctx context.Context, job models.Job) error {
+	if r.db == nil {
+		return fmt.Errorf("database is not configured")
+	}
+
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE jobs
+		SET
+			source_apply_url = $2,
+			title = $3,
+			slug = $4,
+			company = $5,
+			location = $6,
+			employment_type = $7,
+			category = $8,
+			description = $9,
+			requirements = $10,
+			benefits = $11,
+			expired_at = $12,
+			updated_at = NOW()
+		WHERE id = $1
+	`,
+		job.ID,
+		job.SourceApplyURL,
+		job.Title,
+		job.Slug,
+		job.Company,
+		job.Location,
+		job.EmploymentType,
+		job.Category,
+		job.Description,
+		job.Requirements,
+		job.Benefits,
+		job.ExpiredAt,
+	)
+	if err != nil {
+		return fmt.Errorf("update editable job: %w", err)
+	}
+
+	return nil
+}
+
+func (r *JobRepository) UpdateStatus(ctx context.Context, jobID int64, status string) error {
+	if r.db == nil {
+		return fmt.Errorf("database is not configured")
+	}
+
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE jobs
+		SET
+			status = $2,
+			updated_at = NOW()
+		WHERE id = $1
+	`, jobID, status)
+	if err != nil {
+		return fmt.Errorf("update job status: %w", err)
 	}
 
 	return nil
