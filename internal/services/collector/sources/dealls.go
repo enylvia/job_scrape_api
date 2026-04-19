@@ -24,6 +24,7 @@ const (
 	deallsDetailBaseURL   = "https://dealls.com/loker/"
 	deallsDefaultPageSize = 18
 	deallsMaxPages        = 3
+	deallsDetailTimeout   = 20 * time.Second
 )
 
 var nextDataScriptPattern = regexp.MustCompile(`(?s)<script id="__NEXT_DATA__" type="application/json"[^>]*>(.*?)</script>`)
@@ -169,7 +170,9 @@ func (s *DeallsScraper) Collect(ctx context.Context, source models.Source, fetch
 			detailURL := buildDeallsDetailURL(item.Slug, item.Company.Slug)
 			log.Printf("%s %s title=%q url=%s", applogger.ColorScope("dealls"), applogger.ColorFetch("DETAIL"), item.Role, detailURL)
 
-			collected, err := s.collectDetail(ctx, fetcher, item, detailURL)
+			detailCtx, cancel := context.WithTimeout(ctx, deallsDetailTimeout)
+			collected, err := s.collectDetail(detailCtx, fetcher, item, detailURL)
+			cancel()
 			if err != nil {
 				failedDetails++
 				log.Printf("%s %s title=%q url=%s err=%v", applogger.ColorScope("dealls"), applogger.ColorWarn("SKIP"), item.Role, detailURL, err)
@@ -301,16 +304,26 @@ func normalizeEmploymentType(value string) string {
 	switch strings.TrimSpace(value) {
 	case "fullTime":
 		return "full_time"
+	case "FULL_TIME":
+		return "full_time"
 	case "partTime":
+		return "part_time"
+	case "PART_TIME":
 		return "part_time"
 	case "contract":
 		return "contract"
+	case "CONTRACT":
+		return "contract"
 	case "internship":
+		return "internship"
+	case "INTERNSHIP":
 		return "internship"
 	case "freelance":
 		return "freelance"
+	case "FREELANCE":
+		return "freelance"
 	default:
-		return strings.TrimSpace(value)
+		return strings.TrimSpace(strings.ToLower(value))
 	}
 }
 
@@ -318,12 +331,18 @@ func normalizeWorkplaceType(value string) string {
 	switch strings.TrimSpace(value) {
 	case "onSite":
 		return "on_site"
+	case "ONSITE":
+		return "on_site"
 	case "hybrid":
+		return "hybrid"
+	case "HYBRID":
 		return "hybrid"
 	case "remote":
 		return "remote"
+	case "REMOTE":
+		return "remote"
 	default:
-		return strings.TrimSpace(value)
+		return strings.TrimSpace(strings.ToLower(value))
 	}
 }
 

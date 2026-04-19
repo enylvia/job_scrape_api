@@ -134,3 +134,132 @@ func (r *JobRepository) ExistsBySourceJobURL(ctx context.Context, sourceID int64
 
 	return exists, nil
 }
+
+func (r *JobRepository) ListByStatus(ctx context.Context, status string) ([]models.Job, error) {
+	if r.db == nil {
+		return []models.Job{}, nil
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			id, source_id, source_job_url, source_apply_url, title, slug, company, location,
+			employment_type, category, salary_min, salary_max, currency, description, requirements,
+			benefits, posted_at, expired_at, content_hash, status, duplicate_of_job_id,
+			wordpress_post_id, telegram_sent, created_at, updated_at
+		FROM jobs
+		WHERE status = $1
+		ORDER BY id ASC
+	`, status)
+	if err != nil {
+		return nil, fmt.Errorf("query jobs by status: %w", err)
+	}
+	defer rows.Close()
+
+	jobs := make([]models.Job, 0)
+	for rows.Next() {
+		var job models.Job
+		if err := rows.Scan(
+			&job.ID,
+			&job.SourceID,
+			&job.SourceJobURL,
+			&job.SourceApplyURL,
+			&job.Title,
+			&job.Slug,
+			&job.Company,
+			&job.Location,
+			&job.EmploymentType,
+			&job.Category,
+			&job.SalaryMin,
+			&job.SalaryMax,
+			&job.Currency,
+			&job.Description,
+			&job.Requirements,
+			&job.Benefits,
+			&job.PostedAt,
+			&job.ExpiredAt,
+			&job.ContentHash,
+			&job.Status,
+			&job.DuplicateOfJobID,
+			&job.WordPressPostID,
+			&job.TelegramSent,
+			&job.CreatedAt,
+			&job.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan job by status: %w", err)
+		}
+
+		jobs = append(jobs, job)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate jobs by status: %w", err)
+	}
+
+	return jobs, nil
+}
+
+func (r *JobRepository) UpdateNormalized(ctx context.Context, job models.Job) error {
+	if r.db == nil {
+		return fmt.Errorf("database is not configured")
+	}
+
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE jobs
+		SET
+			source_job_url = $2,
+			source_apply_url = $3,
+			title = $4,
+			slug = $5,
+			company = $6,
+			location = $7,
+			employment_type = $8,
+			category = $9,
+			description = $10,
+			requirements = $11,
+			benefits = $12,
+			content_hash = $13,
+			status = $14,
+			updated_at = NOW()
+		WHERE id = $1
+	`,
+		job.ID,
+		job.SourceJobURL,
+		job.SourceApplyURL,
+		job.Title,
+		job.Slug,
+		job.Company,
+		job.Location,
+		job.EmploymentType,
+		job.Category,
+		job.Description,
+		job.Requirements,
+		job.Benefits,
+		job.ContentHash,
+		job.Status,
+	)
+	if err != nil {
+		return fmt.Errorf("update normalized job: %w", err)
+	}
+
+	return nil
+}
+
+func (r *JobRepository) MarkDuplicate(ctx context.Context, jobID, duplicateOfJobID int64) error {
+	if r.db == nil {
+		return fmt.Errorf("database is not configured")
+	}
+
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE jobs
+		SET
+			status = 'duplicate',
+			duplicate_of_job_id = $2,
+			updated_at = NOW()
+		WHERE id = $1
+	`, jobID, duplicateOfJobID)
+	if err != nil {
+		return fmt.Errorf("mark duplicate job: %w", err)
+	}
+
+	return nil
+}

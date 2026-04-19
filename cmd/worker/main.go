@@ -12,6 +12,8 @@ import (
 	"job_aggregator/internal/services/collector/browsercollector"
 	"job_aggregator/internal/services/collector/httpcollector"
 	"job_aggregator/internal/services/collector/sources"
+	"job_aggregator/internal/services/deduplicator"
+	"job_aggregator/internal/services/normalizer"
 )
 
 func main() {
@@ -36,13 +38,24 @@ func main() {
 		},
 		[]collector.SourceScraper{
 			sources.NewDeallsScraper(),
+			sources.NewGlintsScraper(),
 		},
 	)
+	normalizerService := normalizer.NewService(app.Logger, app.JobRepository)
+	deduplicatorService := deduplicator.NewService(app.Logger, app.JobRepository)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if err := service.RunOnce(ctx); err != nil {
 		app.Logger.Fatalf("run collector worker: %v", err)
+	}
+
+	if err := normalizerService.RunOnce(ctx); err != nil {
+		app.Logger.Fatalf("run normalizer worker: %v", err)
+	}
+
+	if err := deduplicatorService.RunOnce(ctx); err != nil {
+		app.Logger.Fatalf("run deduplicator worker: %v", err)
 	}
 }

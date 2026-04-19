@@ -7,11 +7,13 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	applogger "job_aggregator/internal/logger"
 	"job_aggregator/internal/models"
 	"job_aggregator/internal/services/collector"
+	"job_aggregator/internal/services/collector/browsercollector"
 	"job_aggregator/internal/services/collector/httpcollector"
 	"job_aggregator/internal/services/collector/sources"
 )
@@ -19,21 +21,14 @@ import (
 func main() {
 	pageLimit := getEnvIntWithLegacy("COLLECTOR_PREVIEW_PAGES", "DEALLS_PREVIEW_PAGES", 1)
 	printLimit := getEnvIntWithLegacy("COLLECTOR_PREVIEW_PRINT_LIMIT", "DEALLS_PREVIEW_PRINT_LIMIT", 3)
+	sourceName := getEnvString("COLLECTOR_PREVIEW_SOURCE", "dealls")
 
-	log.Printf("%s %s collector preview (pages=%d print_limit=%d)", applogger.ColorScope("preview"), applogger.ColorStart("START"), pageLimit, printLimit)
-
-	source := models.Source{
-		Name:    "dealls",
-		BaseURL: "https://dealls.com/",
-		Mode:    collector.ModeHTTP,
-		Active:  true,
-	}
+	log.Printf("%s %s collector preview source=%s (pages=%d print_limit=%d)", applogger.ColorScope("preview"), applogger.ColorStart("START"), sourceName, pageLimit, printLimit)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	engine := httpcollector.NewWithTimeout(2 * time.Minute)
-	scraper := sources.NewDeallsScraperWithMaxPages(pageLimit)
+	source, engine, scraper := buildPreviewConfig(sourceName, pageLimit)
 
 	log.Printf("%s %s jobs from configured preview source", applogger.ColorScope("preview"), applogger.ColorFetch("COLLECT"))
 	jobs, err := engine.Collect(ctx, source, scraper)
@@ -87,6 +82,33 @@ func main() {
 	log.Printf("%s %s", applogger.ColorScope("preview"), applogger.ColorSuccess("DONE"))
 }
 
+func buildPreviewConfig(sourceName string, pageLimit int) (models.Source, collector.Collector, collector.SourceScraper) {
+	switch strings.ToLower(strings.TrimSpace(sourceName)) {
+	case "", "dealls":
+		return models.Source{
+				Name:    "dealls",
+				BaseURL: "https://dealls.com/",
+				Mode:    collector.ModeHTTP,
+				Active:  true,
+			},
+			httpcollector.NewWithTimeout(2 * time.Minute),
+			sources.NewDeallsScraperWithMaxPages(pageLimit)
+	case "glints":
+		return models.Source{
+				Name:    "glints",
+				BaseURL: "https://glints.com/",
+				Mode:    collector.ModeBrowser,
+				Active:  true,
+			},
+			browsercollector.New(),
+			sources.NewGlintsScraperWithMaxPages(pageLimit)
+	default:
+		log.Fatalf("unsupported collector preview source %q", sourceName)
+	}
+
+	return models.Source{}, nil, nil
+}
+
 func getEnvIntWithLegacy(primaryKey, legacyKey string, fallback int) int {
 	if value, ok := parseEnvInt(primaryKey); ok {
 		return value
@@ -115,6 +137,15 @@ func parseEnvInt(key string) (int, bool) {
 	}
 
 	return parsed, true
+}
+
+func getEnvString(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+
+	return value
 }
 
 func formatTime(value *time.Time) any {
