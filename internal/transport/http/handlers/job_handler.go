@@ -234,6 +234,14 @@ func parseJobListFilter(r *http.Request) (repository.JobListFilter, error) {
 		filter.Limit = limit
 	}
 
+	if rawOffset := strings.TrimSpace(query.Get("offset")); rawOffset != "" {
+		offset, err := strconv.Atoi(rawOffset)
+		if err != nil || offset < 0 {
+			return repository.JobListFilter{}, fmt.Errorf("offset must be a non-negative integer")
+		}
+		filter.Offset = offset
+	}
+
 	if rawSort := strings.TrimSpace(query.Get("sort")); rawSort != "" && !strings.EqualFold(rawSort, "asc") && !strings.EqualFold(rawSort, "desc") {
 		return repository.JobListFilter{}, fmt.Errorf("sort must be asc or desc")
 	}

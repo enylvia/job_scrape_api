@@ -24,6 +24,7 @@ type JobListFilter struct {
 	CreatedFrom *time.Time
 	CreatedTo   *time.Time
 	Limit       int
+	Offset      int
 }
 
 type JobRepository struct {
@@ -268,6 +269,14 @@ func (r *JobRepository) List(ctx context.Context, filter JobListFilter) ([]model
 
 	queryArgs := append(append([]any{}, args...), limit)
 	queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", len(queryArgs)))
+
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	queryArgs = append(queryArgs, offset)
+	queryBuilder.WriteString(fmt.Sprintf(" OFFSET $%d", len(queryArgs)))
 
 	rows, err := r.db.QueryContext(ctx, queryBuilder.String(), queryArgs...)
 	if err != nil {
