@@ -34,24 +34,25 @@ type SourceScraper interface {
 }
 
 type CollectedJob struct {
-	SourceJobURL   string
-	SourceApplyURL string
-	Title          string
-	Slug           string
-	Company        string
-	Location       string
-	EmploymentType string
-	WorkplaceType  string
-	Category       string
-	SalaryMin      *int64
-	SalaryMax      *int64
-	Currency       string
-	Description    string
-	Requirements   string
-	Benefits       string
-	PostedAt       *time.Time
-	ExpiredAt      *time.Time
-	RawHTML        string
-	RawJSON        string
-	CollectedAt    time.Time
+	SourceJobURL           string
+	SourceApplyURL         string
+	Title                  string
+	Slug                   string
+	Company                string
+	CompanyProfileImageURL string
+	Location               string
+	EmploymentType         string
+	WorkplaceType          string
+	Category               string
+	SalaryMin              *int64
+	SalaryMax              *int64
+	Currency               string
+	Description            string
+	Requirements           string
+	Benefits               string
+	PostedAt               *time.Time
+	ExpiredAt              *time.Time
+	RawHTML                string
+	RawJSON                string
+	CollectedAt            time.Time
 }

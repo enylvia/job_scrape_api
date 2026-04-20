@@ -23,6 +23,21 @@ type Service struct {
 	scrapers       map[string]SourceScraper
 }
 
+type RunSummary struct {
+	TotalSources       int
+	SuccessfulSources  int
+	FailedSources      int
+	TotalJobsCollected int
+	SavedJobs          int
+	SkippedJobs        int
+}
+
+type SourceRunSummary struct {
+	JobsCollected int
+	SavedJobs     int
+	SkippedJobs   int
+}
+
 func NewService(
 	logger *log.Logger,
 	sourceRepo *repository.SourceRepository,
@@ -51,42 +66,55 @@ func NewService(
 	}
 }
 
-func (s *Service) RunOnce(ctx context.Context) error {
+func (s *Service) RunOnce(ctx context.Context) (RunSummary, error) {
+	summary := RunSummary{}
+
 	sources, err := s.sourceRepo.ListActive(ctx)
 	if err != nil {
-		return fmt.Errorf("list active sources: %w", err)
+		return summary, fmt.Errorf("list active sources: %w", err)
 	}
+	summary.TotalSources = len(sources)
 
 	if len(sources) == 0 {
 		s.logger.Println("collector worker: no active sources to process")
-		return nil
+		return summary, nil
 	}
 
 	for _, source := range sources {
-		if err := s.collectSource(ctx, source); err != nil {
+		sourceSummary, err := s.collectSource(ctx, source)
+		if err != nil {
+			summary.FailedSources++
 			s.logger.Printf("collector worker: source=%s mode=%s error=%v", source.Name, source.Mode, err)
 			continue
 		}
+
+		summary.SuccessfulSources++
+		summary.TotalJobsCollected += sourceSummary.JobsCollected
+		summary.SavedJobs += sourceSummary.SavedJobs
+		summary.SkippedJobs += sourceSummary.SkippedJobs
 	}
 
-	return nil
+	return summary, nil
 }
 
-func (s *Service) collectSource(ctx context.Context, source models.Source) error {
+func (s *Service) collectSource(ctx context.Context, source models.Source) (SourceRunSummary, error) {
+	summary := SourceRunSummary{}
+
 	scraper, ok := s.scrapers[source.Name]
 	if !ok {
-		return fmt.Errorf("no scraper registered for source %q", source.Name)
+		return summary, fmt.Errorf("no scraper registered for source %q", source.Name)
 	}
 
 	engine, ok := s.collectors[source.Mode]
 	if !ok {
-		return fmt.Errorf("no collector registered for mode %q", source.Mode)
+		return summary, fmt.Errorf("no collector registered for mode %q", source.Mode)
 	}
 
 	jobs, err := engine.Collect(ctx, source, scraper)
 	if err != nil {
-		return fmt.Errorf("collect jobs: %w", err)
+		return summary, fmt.Errorf("collect jobs: %w", err)
 	}
+	summary.JobsCollected = len(jobs)
 
 	savedCount := 0
 	skippedCount := 0
@@ -118,8 +146,10 @@ func (s *Service) collectSource(ctx context.Context, source models.Source) error
 		s.logger.Printf("collector worker: source=%s update last_scraped_at error=%v", source.Name, err)
 	}
 
+	summary.SavedJobs = savedCount
+	summary.SkippedJobs = skippedCount
 	s.logger.Printf("collector worker: source=%s collected=%d saved=%d skipped=%d", source.Name, len(jobs), savedCount, skippedCount)
-	return nil
+	return summary, nil
 }
 
 func (s *Service) persistCollectedJob(ctx context.Context, sourceID int64, item CollectedJob) (bool, error) {
@@ -137,26 +167,28 @@ func (s *Service) persistCollectedJob(ctx context.Context, sourceID int64, item 
 	}
 
 	jobID, err := s.jobRepo.Create(ctx, models.Job{
-		SourceID:       sourceID,
-		SourceJobURL:   item.SourceJobURL,
-		SourceApplyURL: item.SourceApplyURL,
-		Title:          item.Title,
-		Slug:           item.Slug,
-		Company:        item.Company,
-		Location:       item.Location,
-		EmploymentType: item.EmploymentType,
-		Category:       item.Category,
-		SalaryMin:      item.SalaryMin,
-		SalaryMax:      item.SalaryMax,
-		Currency:       item.Currency,
-		Description:    item.Description,
-		Requirements:   item.Requirements,
-		Benefits:       item.Benefits,
-		PostedAt:       item.PostedAt,
-		ExpiredAt:      item.ExpiredAt,
-		ContentHash:    buildContentHash(item),
-		Status:         string(enums.JobStatusScraped),
-		TelegramSent:   false,
+		SourceID:               sourceID,
+		SourceJobURL:           item.SourceJobURL,
+		SourceApplyURL:         item.SourceApplyURL,
+		Title:                  item.Title,
+		Slug:                   item.Slug,
+		Company:                item.Company,
+		CompanyProfileImageURL: item.CompanyProfileImageURL,
+		Location:               item.Location,
+		EmploymentType:         item.EmploymentType,
+		WorkType:               item.WorkplaceType,
+		Category:               item.Category,
+		SalaryMin:              item.SalaryMin,
+		SalaryMax:              item.SalaryMax,
+		Currency:               item.Currency,
+		Description:            item.Description,
+		Requirements:           item.Requirements,
+		Benefits:               item.Benefits,
+		PostedAt:               item.PostedAt,
+		ExpiredAt:              item.ExpiredAt,
+		ContentHash:            buildContentHash(item),
+		Status:                 string(enums.JobStatusScraped),
+		TelegramSent:           false,
 	})
 	if err != nil {
 		return false, fmt.Errorf("create job: %w", err)
@@ -186,6 +218,7 @@ func buildContentHash(item CollectedJob) string {
 		item.Title,
 		item.Slug,
 		item.Company,
+		item.CompanyProfileImageURL,
 		item.Location,
 		item.EmploymentType,
 		item.WorkplaceType,

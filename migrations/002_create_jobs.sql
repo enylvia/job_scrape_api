@@ -6,8 +6,10 @@ CREATE TABLE IF NOT EXISTS jobs (
     title TEXT NOT NULL,
     slug TEXT NOT NULL DEFAULT '',
     company TEXT NOT NULL DEFAULT '',
+    company_profile_image_url TEXT NOT NULL DEFAULT '',
     location TEXT NOT NULL DEFAULT '',
     employment_type TEXT NOT NULL DEFAULT '',
+    work_type TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL DEFAULT '',
     salary_min BIGINT NULL,
     salary_max BIGINT NULL,
@@ -29,4 +31,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS idx_jobs_source_id ON jobs(source_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_content_hash ON jobs(content_hash);
-
+CREATE INDEX IF NOT EXISTS idx_jobs_posted_at ON jobs(posted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_work_type ON jobs(work_type);
+CREATE INDEX IF NOT EXISTS idx_jobs_employment_type ON jobs(employment_type);
+CREATE INDEX IF NOT EXISTS idx_jobs_category ON jobs(category);

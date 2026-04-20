@@ -25,17 +25,19 @@ type JobHandler struct {
 }
 
 type updateJobRequest struct {
-	SourceApplyURL *string `json:"source_apply_url"`
-	Title          *string `json:"title"`
-	Slug           *string `json:"slug"`
-	Company        *string `json:"company"`
-	Location       *string `json:"location"`
-	EmploymentType *string `json:"employment_type"`
-	Category       *string `json:"category"`
-	Description    *string `json:"description"`
-	Requirements   *string `json:"requirements"`
-	Benefits       *string `json:"benefits"`
-	ExpiredAt      *string `json:"expired_at"`
+	SourceApplyURL         *string `json:"source_apply_url"`
+	Title                  *string `json:"title"`
+	Slug                   *string `json:"slug"`
+	Company                *string `json:"company"`
+	CompanyProfileImageURL *string `json:"company_profile_image_url"`
+	Location               *string `json:"location"`
+	EmploymentType         *string `json:"employment_type"`
+	WorkType               *string `json:"work_type"`
+	Category               *string `json:"category"`
+	Description            *string `json:"description"`
+	Requirements           *string `json:"requirements"`
+	Benefits               *string `json:"benefits"`
+	ExpiredAt              *string `json:"expired_at"`
 }
 
 func NewJobHandler(logger *log.Logger, jobRepo *repository.JobRepository) *JobHandler {
@@ -52,14 +54,25 @@ func (h *JobHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobs, err := h.jobRepo.List(r.Context(), filter)
+	jobs, totalCount, err := h.jobRepo.List(r.Context(), filter)
 	if err != nil {
 		h.logger.Printf("job handler: list jobs error=%v", err)
 		writeError(w, http.StatusInternalServerError, "failed to list jobs")
 		return
 	}
 
-	writeData(w, http.StatusOK, jobs)
+	writeData(w, http.StatusOK, "jobs fetched successfully", totalCount, jobs)
+}
+
+func (h *JobHandler) ListCategories(w http.ResponseWriter, r *http.Request) {
+	categories, totalCount, err := h.jobRepo.ListCategories(r.Context())
+	if err != nil {
+		h.logger.Printf("job handler: list categories error=%v", err)
+		writeError(w, http.StatusInternalServerError, "failed to list job categories")
+		return
+	}
+
+	writeData(w, http.StatusOK, "job categories fetched successfully", totalCount, categories)
 }
 
 func (h *JobHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +94,7 @@ func (h *JobHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusOK, job)
+	writeData(w, http.StatusOK, "job detail fetched successfully", 1, job)
 }
 
 func (h *JobHandler) Patch(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +141,7 @@ func (h *JobHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusOK, job)
+	writeData(w, http.StatusOK, "job updated successfully", 1, job)
 }
 
 func (h *JobHandler) Approve(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +187,7 @@ func (h *JobHandler) updateJobStatus(w http.ResponseWriter, r *http.Request, sta
 		return
 	}
 
-	writeData(w, http.StatusOK, job)
+	writeData(w, http.StatusOK, "job status updated successfully", 1, job)
 }
 
 func parseJobID(r *http.Request) (int64, error) {
@@ -194,9 +207,17 @@ func parseJobID(r *http.Request) (int64, error) {
 func parseJobListFilter(r *http.Request) (repository.JobListFilter, error) {
 	query := r.URL.Query()
 	filter := repository.JobListFilter{
-		Status: strings.TrimSpace(query.Get("status")),
+		Status:   strings.TrimSpace(query.Get("status")),
+		Category: strings.TrimSpace(query.Get("category")),
+		Location: strings.TrimSpace(query.Get("location")),
+		WorkType: strings.TrimSpace(query.Get("work_type")),
+		RoleType: strings.TrimSpace(query.Get("role_type")),
+		Sort:     strings.TrimSpace(query.Get("sort")),
 	}
 
+	if rawSearch := strings.TrimSpace(query.Get("search")); rawSearch != "" {
+		filter.Search = rawSearch
+	}
 	if rawSourceID := strings.TrimSpace(query.Get("source_id")); rawSourceID != "" {
 		sourceID, err := strconv.ParseInt(rawSourceID, 10, 64)
 		if err != nil || sourceID <= 0 {
@@ -211,6 +232,18 @@ func parseJobListFilter(r *http.Request) (repository.JobListFilter, error) {
 			return repository.JobListFilter{}, fmt.Errorf("limit must be a positive integer")
 		}
 		filter.Limit = limit
+	}
+
+	if rawOffset := strings.TrimSpace(query.Get("offset")); rawOffset != "" {
+		offset, err := strconv.Atoi(rawOffset)
+		if err != nil || offset < 0 {
+			return repository.JobListFilter{}, fmt.Errorf("offset must be a non-negative integer")
+		}
+		filter.Offset = offset
+	}
+
+	if rawSort := strings.TrimSpace(query.Get("sort")); rawSort != "" && !strings.EqualFold(rawSort, "asc") && !strings.EqualFold(rawSort, "desc") {
+		return repository.JobListFilter{}, fmt.Errorf("sort must be asc or desc")
 	}
 
 	if rawCreatedFrom := strings.TrimSpace(query.Get("created_from")); rawCreatedFrom != "" {
@@ -270,11 +303,17 @@ func applyJobUpdate(job models.Job, request updateJobRequest) (models.Job, error
 	if request.Company != nil {
 		job.Company = strings.TrimSpace(*request.Company)
 	}
+	if request.CompanyProfileImageURL != nil {
+		job.CompanyProfileImageURL = strings.TrimSpace(*request.CompanyProfileImageURL)
+	}
 	if request.Location != nil {
 		job.Location = strings.TrimSpace(*request.Location)
 	}
 	if request.EmploymentType != nil {
 		job.EmploymentType = strings.TrimSpace(*request.EmploymentType)
+	}
+	if request.WorkType != nil {
+		job.WorkType = strings.TrimSpace(*request.WorkType)
 	}
 	if request.Category != nil {
 		job.Category = strings.TrimSpace(*request.Category)

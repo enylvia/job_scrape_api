@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"job_aggregator/internal/models"
 	"job_aggregator/internal/repository"
 	"job_aggregator/internal/services/collector"
 	"job_aggregator/internal/services/collector/browsercollector"
@@ -35,14 +37,15 @@ type Status struct {
 }
 
 type Service struct {
-	logger       *log.Logger
-	collector    *collector.Service
-	normalizer   *normalizer.Service
-	deduplicator *deduplicator.Service
-	running      atomic.Bool
-	mu           sync.RWMutex
-	lastResult   *Result
-	lastError    string
+	logger              *log.Logger
+	collector           *collector.Service
+	normalizer          *normalizer.Service
+	deduplicator        *deduplicator.Service
+	scrapeRunMetricRepo *repository.ScrapeRunMetricRepository
+	running             atomic.Bool
+	mu                  sync.RWMutex
+	lastResult          *Result
+	lastError           string
 }
 
 func NewService(
@@ -50,6 +53,7 @@ func NewService(
 	sourceRepo *repository.SourceRepository,
 	jobRepo *repository.JobRepository,
 	jobRawDataRepo *repository.JobRawDataRepository,
+	scrapeRunMetricRepo *repository.ScrapeRunMetricRepository,
 ) *Service {
 	return &Service{
 		logger: logger,
@@ -67,8 +71,9 @@ func NewService(
 				sources.NewGlintsScraper(),
 			},
 		),
-		normalizer:   normalizer.NewService(logger, jobRepo),
-		deduplicator: deduplicator.NewService(logger, jobRepo),
+		normalizer:          normalizer.NewService(logger, jobRepo),
+		deduplicator:        deduplicator.NewService(logger, jobRepo),
+		scrapeRunMetricRepo: scrapeRunMetricRepo,
 	}
 }
 
@@ -159,22 +164,27 @@ func (s *Service) run(ctx context.Context) (Result, error) {
 	s.setLastStartedAt(startedAt)
 	s.logger.Printf("pipeline worker: started at=%s", startedAt.Format(time.RFC3339))
 
-	if err := s.collector.RunOnce(ctx); err != nil {
+	collectorSummary, err := s.collector.RunOnce(ctx)
+	if err != nil {
+		s.persistScrapeRunMetric(startedAt, time.Now().UTC(), collectorSummary)
 		s.setLastError(err)
 		return Result{}, fmt.Errorf("run collector: %w", err)
 	}
 
 	if err := s.normalizer.RunOnce(ctx); err != nil {
+		s.persistScrapeRunMetric(startedAt, time.Now().UTC(), collectorSummary)
 		s.setLastError(err)
 		return Result{}, fmt.Errorf("run normalizer: %w", err)
 	}
 
 	if err := s.deduplicator.RunOnce(ctx); err != nil {
+		s.persistScrapeRunMetric(startedAt, time.Now().UTC(), collectorSummary)
 		s.setLastError(err)
 		return Result{}, fmt.Errorf("run deduplicator: %w", err)
 	}
 
 	finishedAt := time.Now().UTC()
+	s.persistScrapeRunMetric(startedAt, finishedAt, collectorSummary)
 	result := Result{
 		StartedAt:  startedAt,
 		FinishedAt: finishedAt,
@@ -184,4 +194,38 @@ func (s *Service) run(ctx context.Context) (Result, error) {
 	s.setLastResult(result)
 	s.logger.Printf("pipeline worker: completed duration=%s", result.Duration)
 	return result, nil
+}
+
+func (s *Service) persistScrapeRunMetric(startedAt, finishedAt time.Time, summary collector.RunSummary) {
+	if s.scrapeRunMetricRepo == nil {
+		return
+	}
+
+	successRate := calculatePercentage(summary.SuccessfulSources, summary.TotalSources)
+	metric := models.ScrapeRunMetric{
+		StartedAt:              startedAt,
+		FinishedAt:             finishedAt,
+		DurationSeconds:        int64(finishedAt.Sub(startedAt).Seconds()),
+		TotalSources:           summary.TotalSources,
+		SuccessfulSources:      summary.SuccessfulSources,
+		FailedSources:          summary.FailedSources,
+		TotalJobsCollected:     summary.TotalJobsCollected,
+		SavedJobs:              summary.SavedJobs,
+		SkippedJobs:            summary.SkippedJobs,
+		SuccessRatePercentage:  successRate,
+		ScrapeHealthPercentage: successRate,
+	}
+
+	if _, err := s.scrapeRunMetricRepo.Create(context.Background(), metric); err != nil {
+		s.logger.Printf("pipeline worker: persist scrape metric error=%v", err)
+	}
+}
+
+func calculatePercentage(successCount, totalCount int) float64 {
+	if totalCount <= 0 {
+		return 0
+	}
+
+	percentage := (float64(successCount) / float64(totalCount)) * 100
+	return math.Round(percentage*100) / 100
 }
