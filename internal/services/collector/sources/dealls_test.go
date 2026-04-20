@@ -76,9 +76,13 @@ func TestDeallsCollectContinuesWhenOneDetailFails(t *testing.T) {
 			WorkplaceType:   "remote",
 			PublishedAt:     "2026-04-16T00:00:00Z",
 			Company: struct {
-				Name    string `json:"name"`
-				Slug    string `json:"slug"`
-				Insight struct {
+				Name              string `json:"name"`
+				Slug              string `json:"slug"`
+				ProfileImageURL   string `json:"profileImageUrl"`
+				ProfilePictureURL string `json:"profilePictureUrl"`
+				LogoURL           string `json:"logoUrl"`
+				ImageURL          string `json:"imageUrl"`
+				Insight           struct {
 					Benefits []string `json:"benefits"`
 				} `json:"insight"`
 			}{
@@ -97,9 +101,13 @@ func TestDeallsCollectContinuesWhenOneDetailFails(t *testing.T) {
 			WorkplaceType:   "hybrid",
 			PublishedAt:     "2026-04-16T00:00:00Z",
 			Company: struct {
-				Name    string `json:"name"`
-				Slug    string `json:"slug"`
-				Insight struct {
+				Name              string `json:"name"`
+				Slug              string `json:"slug"`
+				ProfileImageURL   string `json:"profileImageUrl"`
+				ProfilePictureURL string `json:"profilePictureUrl"`
+				LogoURL           string `json:"logoUrl"`
+				ImageURL          string `json:"imageUrl"`
+				Insight           struct {
 					Benefits []string `json:"benefits"`
 				} `json:"insight"`
 			}{
@@ -163,9 +171,13 @@ func TestDeallsCollectDetailMapsProductionFields(t *testing.T) {
 			End:   int64Ptr(15000000),
 		},
 		Company: struct {
-			Name    string `json:"name"`
-			Slug    string `json:"slug"`
-			Insight struct {
+			Name              string `json:"name"`
+			Slug              string `json:"slug"`
+			ProfileImageURL   string `json:"profileImageUrl"`
+			ProfilePictureURL string `json:"profilePictureUrl"`
+			LogoURL           string `json:"logoUrl"`
+			ImageURL          string `json:"imageUrl"`
+			Insight           struct {
 				Benefits []string `json:"benefits"`
 			} `json:"insight"`
 		}{
@@ -266,9 +278,13 @@ func sampleDetailJob() deallsDetailJob {
 			Name string `json:"name"`
 		}{Name: "Platform Engineering"},
 		Company: struct {
-			Name    string `json:"name"`
-			Website string `json:"website"`
-			Insight struct {
+			Name              string `json:"name"`
+			Website           string `json:"website"`
+			ProfileImageURL   string `json:"profileImageUrl"`
+			ProfilePictureURL string `json:"profilePictureUrl"`
+			LogoURL           string `json:"logoUrl"`
+			ImageURL          string `json:"imageUrl"`
+			Insight           struct {
 				Benefits []string `json:"benefits"`
 			} `json:"insight"`
 			Location struct {

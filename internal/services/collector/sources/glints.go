@@ -65,13 +65,17 @@ type glintsListJob struct {
 }
 
 type glintsListCompany struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Brand    string `json:"brandName"`
-	Website  string `json:"website"`
-	Address  string `json:"address"`
-	IsVIP    bool   `json:"isVIP"`
-	Industry any    `json:"industry"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Brand             string `json:"brandName"`
+	Website           string `json:"website"`
+	Address           string `json:"address"`
+	LogoURL           string `json:"logoUrl"`
+	ProfileImageURL   string `json:"profileImageUrl"`
+	ProfilePictureURL string `json:"profilePictureUrl"`
+	IconURL           string `json:"iconUrl"`
+	IsVIP             bool   `json:"isVIP"`
+	Industry          any    `json:"industry"`
 }
 
 type glintsListLocation struct {
@@ -377,6 +381,17 @@ func (s *GlintsScraper) collectDetail(ctx context.Context, fetcher collector.Fet
 			structured.HiringOrganization.Name,
 			item.Company.Brand,
 			item.Company.Name,
+		),
+		CompanyProfileImageURL: firstNonEmpty(
+			detailData.Company.LogoURL,
+			detailData.Company.ProfileImageURL,
+			detailData.Company.ProfilePictureURL,
+			detailData.Company.IconURL,
+			item.Company.LogoURL,
+			item.Company.ProfileImageURL,
+			item.Company.ProfilePictureURL,
+			item.Company.IconURL,
+			extractGlintsCompanyImage(detailResult.Body),
 		),
 		Location:       location,
 		EmploymentType: normalizeEmploymentType(firstNonEmpty(detailData.Job.Type, structured.EmploymentType, item.Type)),
@@ -915,4 +930,30 @@ func extractGlintsStructuredSections(fragment string) glintsStructuredSections {
 func stringFromAny(value any) string {
 	text, _ := value.(string)
 	return text
+}
+
+func extractGlintsCompanyImage(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(body))
+	if err != nil {
+		return ""
+	}
+
+	for _, selector := range []string{
+		`meta[property="og:image"]`,
+		`meta[property="twitter:image"]`,
+	} {
+		if value, exists := doc.Find(selector).First().Attr("content"); exists {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				return value
+			}
+		}
+	}
+
+	return ""
 }

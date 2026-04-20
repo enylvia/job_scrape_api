@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"job_aggregator/internal/models"
 )
@@ -14,6 +16,10 @@ type JobListFilter struct {
 	Status      string
 	Search      string
 	Category    string
+	Location    string
+	WorkType    string
+	RoleType    string
+	Sort        string
 	SourceID    *int64
 	CreatedFrom *time.Time
 	CreatedTo   *time.Time
@@ -36,8 +42,8 @@ func (r *JobRepository) GetByID(ctx context.Context, id int64) (models.Job, erro
 	var job models.Job
 	err := r.db.QueryRowContext(ctx, `
 		SELECT
-			id, source_id, source_job_url, source_apply_url, title, slug, company, location,
-			employment_type, category, salary_min, salary_max, currency, description, requirements,
+			id, source_id, source_job_url, source_apply_url, title, slug, company, company_profile_image_url, location,
+			employment_type, work_type, category, salary_min, salary_max, currency, description, requirements,
 			benefits, posted_at, expired_at, content_hash, status, duplicate_of_job_id,
 			wordpress_post_id, telegram_sent, created_at, updated_at
 		FROM jobs
@@ -50,8 +56,10 @@ func (r *JobRepository) GetByID(ctx context.Context, id int64) (models.Job, erro
 		&job.Title,
 		&job.Slug,
 		&job.Company,
+		&job.CompanyProfileImageURL,
 		&job.Location,
 		&job.EmploymentType,
+		&job.WorkType,
 		&job.Category,
 		&job.SalaryMin,
 		&job.SalaryMax,
@@ -84,16 +92,16 @@ func (r *JobRepository) Create(ctx context.Context, job models.Job) (int64, erro
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
 		INSERT INTO jobs (
-			source_id, source_job_url, source_apply_url, title, slug, company, location,
-			employment_type, category, salary_min, salary_max, currency, description, requirements,
+			source_id, source_job_url, source_apply_url, title, slug, company, company_profile_image_url, location,
+			employment_type, work_type, category, salary_min, salary_max, currency, description, requirements,
 			benefits, posted_at, expired_at, content_hash, status, duplicate_of_job_id,
 			wordpress_post_id, telegram_sent
 		)
 		VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9, $10, $11, $12, $13, $14,
-			$15, $16, $17, $18, $19, $20,
-			$21, $22
+			$1, $2, $3, $4, $5, $6, $7, $8,
+			$9, $10, $11, $12, $13, $14, $15, $16,
+			$17, $18, $19, $20, $21, $22,
+			$23, $24
 		)
 		RETURNING id
 	`,
@@ -103,15 +111,17 @@ func (r *JobRepository) Create(ctx context.Context, job models.Job) (int64, erro
 		job.Title,
 		job.Slug,
 		job.Company,
+		strings.TrimSpace(job.CompanyProfileImageURL),
 		job.Location,
 		job.EmploymentType,
+		strings.TrimSpace(job.WorkType),
 		job.Category,
 		job.SalaryMin,
 		job.SalaryMax,
 		job.Currency,
-		job.Description,
-		job.Requirements,
-		job.Benefits,
+		normalizeStoredText(job.Description),
+		normalizeStoredText(job.Requirements),
+		normalizeStoredText(job.Benefits),
 		job.PostedAt,
 		job.ExpiredAt,
 		job.ContentHash,
@@ -154,8 +164,8 @@ func (r *JobRepository) ListByStatus(ctx context.Context, status string) ([]mode
 
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT
-			id, source_id, source_job_url, source_apply_url, title, slug, company, location,
-			employment_type, category, salary_min, salary_max, currency, description, requirements,
+			id, source_id, source_job_url, source_apply_url, title, slug, company, company_profile_image_url, location,
+			employment_type, work_type, category, salary_min, salary_max, currency, description, requirements,
 			benefits, posted_at, expired_at, content_hash, status, duplicate_of_job_id,
 			wordpress_post_id, telegram_sent, created_at, updated_at
 		FROM jobs
@@ -178,8 +188,10 @@ func (r *JobRepository) ListByStatus(ctx context.Context, status string) ([]mode
 			&job.Title,
 			&job.Slug,
 			&job.Company,
+			&job.CompanyProfileImageURL,
 			&job.Location,
 			&job.EmploymentType,
+			&job.WorkType,
 			&job.Category,
 			&job.SalaryMin,
 			&job.SalaryMax,
@@ -224,8 +236,8 @@ func (r *JobRepository) List(ctx context.Context, filter JobListFilter) ([]model
 
 	queryBuilder.WriteString(`
 		SELECT
-			id, source_id, source_job_url, source_apply_url, title, slug, company, location,
-			employment_type, category, salary_min, salary_max, currency, description, requirements,
+			id, source_id, source_job_url, source_apply_url, title, slug, company, company_profile_image_url, location,
+			employment_type, work_type, category, salary_min, salary_max, currency, description, requirements,
 			benefits, posted_at, expired_at, content_hash, status, duplicate_of_job_id,
 			wordpress_post_id, telegram_sent, created_at, updated_at
 		FROM jobs
@@ -241,7 +253,10 @@ func (r *JobRepository) List(ctx context.Context, filter JobListFilter) ([]model
 		return nil, 0, err
 	}
 
-	queryBuilder.WriteString(" ORDER BY posted_at DESC, id DESC")
+	queryBuilder.WriteString(" ORDER BY posted_at ")
+	queryBuilder.WriteString(resolveSortDirection(filter.Sort))
+	queryBuilder.WriteString(" NULLS LAST, id ")
+	queryBuilder.WriteString(resolveSortDirection(filter.Sort))
 
 	limit := filter.Limit
 	if limit <= 0 {
@@ -271,8 +286,10 @@ func (r *JobRepository) List(ctx context.Context, filter JobListFilter) ([]model
 			&job.Title,
 			&job.Slug,
 			&job.Company,
+			&job.CompanyProfileImageURL,
 			&job.Location,
 			&job.EmploymentType,
+			&job.WorkType,
 			&job.Category,
 			&job.SalaryMin,
 			&job.SalaryMax,
@@ -322,18 +339,30 @@ func (r *JobRepository) ListCategories(ctx context.Context) ([]models.JobCategor
 	}
 	defer rows.Close()
 
-	categories := make([]models.JobCategoryStat, 0)
+	aggregated := make(map[string]int)
 	for rows.Next() {
 		var category models.JobCategoryStat
 		if err := rows.Scan(&category.Category, &category.JobCount); err != nil {
 			return nil, 0, fmt.Errorf("scan job category: %w", err)
 		}
 
-		categories = append(categories, category)
+		aggregated[humanizeCategory(category.Category)] += category.JobCount
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("iterate job categories: %w", err)
 	}
+
+	categories := make([]models.JobCategoryStat, 0, len(aggregated))
+	for category, jobCount := range aggregated {
+		categories = append(categories, models.JobCategoryStat{
+			Category: category,
+			JobCount: jobCount,
+		})
+	}
+
+	sort.Slice(categories, func(i, j int) bool {
+		return categories[i].Category < categories[j].Category
+	})
 
 	return categories, len(categories), nil
 }
@@ -368,8 +397,20 @@ func buildJobListConditions(filter JobListFilter) ([]string, []any) {
 		conditions = append(conditions, fmt.Sprintf("status = $%d", len(args)))
 	}
 	if strings.TrimSpace(filter.Category) != "" {
-		args = append(args, strings.ToLower(strings.TrimSpace(filter.Category)))
-		conditions = append(conditions, fmt.Sprintf("LOWER(TRIM(category)) = $%d", len(args)))
+		args = append(args, normalizeCategoryComparable(filter.Category))
+		conditions = append(conditions, fmt.Sprintf("LOWER(BTRIM(regexp_replace(replace(replace(category, '-', ' '), '_', ' '), '\\s+', ' ', 'g'))) = $%d", len(args)))
+	}
+	if strings.TrimSpace(filter.Location) != "" {
+		args = append(args, "%"+strings.ToLower(strings.TrimSpace(filter.Location))+"%")
+		conditions = append(conditions, fmt.Sprintf("LOWER(location) LIKE $%d", len(args)))
+	}
+	if strings.TrimSpace(filter.WorkType) != "" {
+		args = append(args, strings.ToLower(strings.TrimSpace(filter.WorkType)))
+		conditions = append(conditions, fmt.Sprintf("LOWER(TRIM(work_type)) = $%d", len(args)))
+	}
+	if strings.TrimSpace(filter.RoleType) != "" {
+		args = append(args, "%"+strings.ToLower(strings.TrimSpace(filter.RoleType))+"%")
+		conditions = append(conditions, fmt.Sprintf("LOWER(employment_type) LIKE $%d", len(args)))
 	}
 	if filter.SourceID != nil {
 		args = append(args, *filter.SourceID)
@@ -400,14 +441,16 @@ func (r *JobRepository) UpdateNormalized(ctx context.Context, job models.Job) er
 			title = $4,
 			slug = $5,
 			company = $6,
-			location = $7,
-			employment_type = $8,
-			category = $9,
-			description = $10,
-			requirements = $11,
-			benefits = $12,
-			content_hash = $13,
-			status = $14,
+			company_profile_image_url = $7,
+			location = $8,
+			employment_type = $9,
+			work_type = $10,
+			category = $11,
+			description = $12,
+			requirements = $13,
+			benefits = $14,
+			content_hash = $15,
+			status = $16,
 			updated_at = NOW()
 		WHERE id = $1
 	`,
@@ -417,12 +460,14 @@ func (r *JobRepository) UpdateNormalized(ctx context.Context, job models.Job) er
 		job.Title,
 		job.Slug,
 		job.Company,
+		strings.TrimSpace(job.CompanyProfileImageURL),
 		job.Location,
 		job.EmploymentType,
+		strings.TrimSpace(job.WorkType),
 		job.Category,
-		job.Description,
-		job.Requirements,
-		job.Benefits,
+		normalizeStoredText(job.Description),
+		normalizeStoredText(job.Requirements),
+		normalizeStoredText(job.Benefits),
 		job.ContentHash,
 		job.Status,
 	)
@@ -445,13 +490,15 @@ func (r *JobRepository) UpdateEditable(ctx context.Context, job models.Job) erro
 			title = $3,
 			slug = $4,
 			company = $5,
-			location = $6,
-			employment_type = $7,
-			category = $8,
-			description = $9,
-			requirements = $10,
-			benefits = $11,
-			expired_at = $12,
+			company_profile_image_url = $6,
+			location = $7,
+			employment_type = $8,
+			work_type = $9,
+			category = $10,
+			description = $11,
+			requirements = $12,
+			benefits = $13,
+			expired_at = $14,
 			updated_at = NOW()
 		WHERE id = $1
 	`,
@@ -460,12 +507,14 @@ func (r *JobRepository) UpdateEditable(ctx context.Context, job models.Job) erro
 		job.Title,
 		job.Slug,
 		job.Company,
+		strings.TrimSpace(job.CompanyProfileImageURL),
 		job.Location,
 		job.EmploymentType,
+		strings.TrimSpace(job.WorkType),
 		job.Category,
-		job.Description,
-		job.Requirements,
-		job.Benefits,
+		normalizeStoredText(job.Description),
+		normalizeStoredText(job.Requirements),
+		normalizeStoredText(job.Benefits),
 		job.ExpiredAt,
 	)
 	if err != nil {
@@ -512,4 +561,54 @@ func (r *JobRepository) MarkDuplicate(ctx context.Context, jobID, duplicateOfJob
 	}
 
 	return nil
+}
+
+func resolveSortDirection(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), "asc") {
+		return "ASC"
+	}
+
+	return "DESC"
+}
+
+func normalizeCategoryComparable(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.ReplaceAll(value, "-", " ")
+	value = strings.ReplaceAll(value, "_", " ")
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func humanizeCategory(value string) string {
+	value = normalizeCategoryComparable(value)
+	if value == "" {
+		return ""
+	}
+
+	words := strings.Fields(value)
+	for index, word := range words {
+		words[index] = capitalizeCategoryWord(word)
+	}
+
+	return strings.Join(words, " ")
+}
+
+func capitalizeCategoryWord(word string) string {
+	if word == "" {
+		return ""
+	}
+
+	isAcronym := true
+	for _, r := range word {
+		if !unicode.IsUpper(r) && !unicode.IsDigit(r) {
+			isAcronym = false
+			break
+		}
+	}
+	if isAcronym && len(word) <= 4 {
+		return word
+	}
+
+	runes := []rune(strings.ToLower(word))
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
 }

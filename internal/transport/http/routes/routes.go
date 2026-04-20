@@ -10,6 +10,7 @@ import (
 func New(
 	logger *log.Logger,
 	healthHandler *handlers.HealthHandler,
+	aboutHandler *handlers.AboutHandler,
 	jobHandler *handlers.JobHandler,
 	scrapeMetricHandler *handlers.ScrapeMetricHandler,
 	sourceHandler *handlers.SourceHandler,
@@ -17,6 +18,11 @@ func New(
 ) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /health", healthHandler)
+	mux.HandleFunc("GET /internal/about", aboutHandler.List)
+	mux.HandleFunc("POST /internal/about", aboutHandler.Create)
+	mux.HandleFunc("GET /internal/about/{id}", aboutHandler.Get)
+	mux.HandleFunc("PATCH /internal/about/{id}", aboutHandler.Update)
+	mux.HandleFunc("DELETE /internal/about/{id}", aboutHandler.Delete)
 	mux.HandleFunc("GET /internal/jobs/categories", jobHandler.ListCategories)
 	mux.HandleFunc("GET /internal/jobs", jobHandler.List)
 	mux.HandleFunc("GET /internal/jobs/{id}", jobHandler.Get)

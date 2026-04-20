@@ -56,9 +56,13 @@ type deallsListJob struct {
 		End   *int64 `json:"end"`
 	} `json:"salaryRange"`
 	Company struct {
-		Name    string `json:"name"`
-		Slug    string `json:"slug"`
-		Insight struct {
+		Name              string `json:"name"`
+		Slug              string `json:"slug"`
+		ProfileImageURL   string `json:"profileImageUrl"`
+		ProfilePictureURL string `json:"profilePictureUrl"`
+		LogoURL           string `json:"logoUrl"`
+		ImageURL          string `json:"imageUrl"`
+		Insight           struct {
 			Benefits []string `json:"benefits"`
 		} `json:"insight"`
 	} `json:"company"`
@@ -106,9 +110,13 @@ type deallsDetailJob struct {
 		Name string `json:"name"`
 	} `json:"jobRoleSubCategory"`
 	Company struct {
-		Name    string `json:"name"`
-		Website string `json:"website"`
-		Insight struct {
+		Name              string `json:"name"`
+		Website           string `json:"website"`
+		ProfileImageURL   string `json:"profileImageUrl"`
+		ProfilePictureURL string `json:"profilePictureUrl"`
+		LogoURL           string `json:"logoUrl"`
+		ImageURL          string `json:"imageUrl"`
+		Insight           struct {
 			Benefits []string `json:"benefits"`
 		} `json:"insight"`
 		Location struct {
@@ -244,6 +252,16 @@ func (s *DeallsScraper) collectDetail(ctx context.Context, fetcher collector.Fet
 		Title:          firstNonEmpty(detailData.Role, item.Role),
 		Slug:           firstNonEmpty(detailData.Slug, item.Slug),
 		Company:        firstNonEmpty(detailData.Company.Name, item.Company.Name),
+		CompanyProfileImageURL: firstNonEmpty(
+			detailData.Company.ProfileImageURL,
+			detailData.Company.ProfilePictureURL,
+			detailData.Company.LogoURL,
+			detailData.Company.ImageURL,
+			item.Company.ProfileImageURL,
+			item.Company.ProfilePictureURL,
+			item.Company.LogoURL,
+			item.Company.ImageURL,
+		),
 		Location: firstNonEmpty(
 			detailData.City.Name,
 			detailData.Company.Location.City.Name,
@@ -330,9 +348,9 @@ func normalizeEmploymentType(value string) string {
 func normalizeWorkplaceType(value string) string {
 	switch strings.TrimSpace(value) {
 	case "onSite":
-		return "on_site"
+		return "wfo"
 	case "ONSITE":
-		return "on_site"
+		return "wfo"
 	case "hybrid":
 		return "hybrid"
 	case "HYBRID":
@@ -342,7 +360,11 @@ func normalizeWorkplaceType(value string) string {
 	case "REMOTE":
 		return "remote"
 	default:
-		return strings.TrimSpace(strings.ToLower(value))
+		normalized := strings.TrimSpace(strings.ToLower(value))
+		if normalized == "on_site" || normalized == "onsite" || normalized == "wfo" {
+			return "wfo"
+		}
+		return normalized
 	}
 }
 

@@ -87,7 +87,7 @@ func TestGlintsCollectDetailMapsProductionFields(t *testing.T) {
 		t.Fatalf("unexpected employment type: %s", job.EmploymentType)
 	}
 
-	if job.WorkplaceType != "on_site" {
+	if job.WorkplaceType != "wfo" {
 		t.Fatalf("unexpected workplace type: %s", job.WorkplaceType)
 	}
 

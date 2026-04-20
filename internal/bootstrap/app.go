@@ -20,12 +20,14 @@ type App struct {
 	Config               config.Config
 	Logger               *log.Logger
 	DB                   *sql.DB
+	AboutPageRepository  *repository.AboutPageRepository
 	SourceRepository     *repository.SourceRepository
 	JobRepository        *repository.JobRepository
 	JobRawDataRepository *repository.JobRawDataRepository
 	ScrapeMetricRepo     *repository.ScrapeRunMetricRepository
 	PipelineService      *pipeline.Service
 	HealthHandler        *transporthandlers.HealthHandler
+	AboutHandler         *transporthandlers.AboutHandler
 	JobHandler           *transporthandlers.JobHandler
 	ScrapeMetricHandler  *transporthandlers.ScrapeMetricHandler
 	SourceHandler        *transporthandlers.SourceHandler
@@ -46,6 +48,7 @@ func NewApp() (*App, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
+	aboutPageRepo := repository.NewAboutPageRepository(db)
 	sourceRepo := repository.NewSourceRepository(db)
 	jobRepo := repository.NewJobRepository(db)
 	jobRawDataRepo := repository.NewJobRawDataRepository(db)
@@ -53,11 +56,12 @@ func NewApp() (*App, error) {
 	pipelineService := pipeline.NewService(logger, sourceRepo, jobRepo, jobRawDataRepo, scrapeMetricRepo)
 
 	healthHandler := transporthandlers.NewHealthHandler(cfg, db)
+	aboutHandler := transporthandlers.NewAboutHandler(logger, aboutPageRepo)
 	jobHandler := transporthandlers.NewJobHandler(logger, jobRepo)
 	scrapeMetricHandler := transporthandlers.NewScrapeMetricHandler(logger, scrapeMetricRepo)
 	sourceHandler := transporthandlers.NewSourceHandler(sourceRepo)
 	workerHandler := transporthandlers.NewWorkerHandler(logger, pipelineService)
-	router := transportroutes.New(logger, healthHandler, jobHandler, scrapeMetricHandler, sourceHandler, workerHandler)
+	router := transportroutes.New(logger, healthHandler, aboutHandler, jobHandler, scrapeMetricHandler, sourceHandler, workerHandler)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.App.Port,
@@ -71,12 +75,14 @@ func NewApp() (*App, error) {
 		Config:               cfg,
 		Logger:               logger,
 		DB:                   db,
+		AboutPageRepository:  aboutPageRepo,
 		SourceRepository:     sourceRepo,
 		JobRepository:        jobRepo,
 		JobRawDataRepository: jobRawDataRepo,
 		ScrapeMetricRepo:     scrapeMetricRepo,
 		PipelineService:      pipelineService,
 		HealthHandler:        healthHandler,
+		AboutHandler:         aboutHandler,
 		JobHandler:           jobHandler,
 		ScrapeMetricHandler:  scrapeMetricHandler,
 		SourceHandler:        sourceHandler,
