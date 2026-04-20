@@ -5,8 +5,10 @@ import (
 	"net/http"
 )
 
-type errorResponse struct {
-	Message string `json:"message"`
+type apiResponse struct {
+	APIMessage string `json:"api_message"`
+	Count      int    `json:"count"`
+	Data       any    `json:"data"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -15,16 +17,18 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func writeData(w http.ResponseWriter, status int, data any) {
-	writeJSON(w, status, map[string]any{
-		"data": data,
+func writeData(w http.ResponseWriter, status int, apiMessage string, count int, data any) {
+	writeJSON(w, status, apiResponse{
+		APIMessage: apiMessage,
+		Count:      count,
+		Data:       data,
 	})
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]any{
-		"error": errorResponse{
-			Message: message,
-		},
+	writeJSON(w, status, apiResponse{
+		APIMessage: message,
+		Count:      0,
+		Data:       nil,
 	})
 }

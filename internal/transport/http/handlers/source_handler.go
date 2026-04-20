@@ -17,11 +17,11 @@ func NewSourceHandler(sourceRepo *repository.SourceRepository) *SourceHandler {
 }
 
 func (h *SourceHandler) List(w http.ResponseWriter, r *http.Request) {
-	sources, err := h.sourceRepo.List(r.Context())
+	sources, totalCount, err := h.sourceRepo.List(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list sources")
 		return
 	}
 
-	writeData(w, http.StatusOK, sources)
+	writeData(w, http.StatusOK, "sources fetched successfully", totalCount, sources)
 }

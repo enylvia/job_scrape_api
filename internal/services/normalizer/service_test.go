@@ -73,3 +73,25 @@ func TestNormalizeJobInvalidMovesToReviewPending(t *testing.T) {
 		t.Fatalf("expected status review_pending, got %s", job.Status)
 	}
 }
+
+func TestCleanMultilineHumanizesMachineTokens(t *testing.T) {
+	input := "* competitiveSalary\nmedicalLeave\nperiodLeave\nbonus-system"
+
+	actual := cleanMultiline(input)
+	expected := "Competitive Salary\nMedical Leave\nPeriod Leave\nBonus System"
+
+	if actual != expected {
+		t.Fatalf("cleanMultiline() = %q, expected %q", actual, expected)
+	}
+}
+
+func TestCleanMultilineKeepsNaturalLanguageLines(t *testing.T) {
+	input := "* Mengembangkan pipeline LLM untuk auto-generate jadwal\nPython (intermediate-advanced)\nOpenAI / Gemini API"
+
+	actual := cleanMultiline(input)
+	expected := "Mengembangkan pipeline LLM untuk auto-generate jadwal\nPython (intermediate-advanced)\nOpenAI / Gemini API"
+
+	if actual != expected {
+		t.Fatalf("cleanMultiline() = %q, expected %q", actual, expected)
+	}
+}

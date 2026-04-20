@@ -32,12 +32,12 @@ func (h *WorkerHandler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusAccepted, map[string]any{
+	writeData(w, http.StatusAccepted, "worker pipeline started", 1, map[string]any{
 		"message": "worker pipeline started",
 		"status":  h.pipeline.Status(),
 	})
 }
 
 func (h *WorkerHandler) Status(w http.ResponseWriter, r *http.Request) {
-	writeData(w, http.StatusOK, h.pipeline.Status())
+	writeData(w, http.StatusOK, "worker status fetched successfully", 1, h.pipeline.Status())
 }

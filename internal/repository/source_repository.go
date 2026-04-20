@@ -17,9 +17,14 @@ func NewSourceRepository(db *sql.DB) *SourceRepository {
 	return &SourceRepository{db: db}
 }
 
-func (r *SourceRepository) List(ctx context.Context) ([]models.Source, error) {
+func (r *SourceRepository) List(ctx context.Context) ([]models.Source, int, error) {
 	if r.db == nil {
-		return []models.Source{}, nil
+		return []models.Source{}, 0, nil
+	}
+
+	totalCount, err := r.countAll(ctx)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	rows, err := r.db.QueryContext(ctx, `
@@ -28,7 +33,7 @@ func (r *SourceRepository) List(ctx context.Context) ([]models.Source, error) {
 		ORDER BY id ASC
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("query sources: %w", err)
+		return nil, 0, fmt.Errorf("query sources: %w", err)
 	}
 	defer rows.Close()
 
@@ -46,17 +51,17 @@ func (r *SourceRepository) List(ctx context.Context) ([]models.Source, error) {
 			&source.CreatedAt,
 			&source.UpdatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("scan source: %w", err)
+			return nil, 0, fmt.Errorf("scan source: %w", err)
 		}
 
 		sources = append(sources, source)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate sources: %w", err)
+		return nil, 0, fmt.Errorf("iterate sources: %w", err)
 	}
 
-	return sources, nil
+	return sources, totalCount, nil
 }
 
 func (r *SourceRepository) ListActive(ctx context.Context) ([]models.Source, error) {
@@ -142,4 +147,13 @@ func (r *SourceRepository) MarkScraped(ctx context.Context, sourceID int64, scra
 	}
 
 	return nil
+}
+
+func (r *SourceRepository) countAll(ctx context.Context) (int, error) {
+	var totalCount int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sources`).Scan(&totalCount); err != nil {
+		return 0, fmt.Errorf("count sources: %w", err)
+	}
+
+	return totalCount, nil
 }

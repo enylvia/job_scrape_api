@@ -12,6 +12,8 @@ import (
 
 type JobListFilter struct {
 	Status      string
+	Search      string
+	Category    string
 	SourceID    *int64
 	CreatedFrom *time.Time
 	CreatedTo   *time.Time
@@ -208,16 +210,17 @@ func (r *JobRepository) ListByStatus(ctx context.Context, status string) ([]mode
 	return jobs, nil
 }
 
-func (r *JobRepository) List(ctx context.Context, filter JobListFilter) ([]models.Job, error) {
+func (r *JobRepository) List(ctx context.Context, filter JobListFilter) ([]models.Job, int, error) {
 	if r.db == nil {
-		return []models.Job{}, nil
+		return []models.Job{}, 0, nil
 	}
 
 	var (
 		queryBuilder strings.Builder
 		args         []any
-		conditions   []string
 	)
+
+	conditions, args := buildJobListConditions(filter)
 
 	queryBuilder.WriteString(`
 		SELECT
@@ -228,32 +231,17 @@ func (r *JobRepository) List(ctx context.Context, filter JobListFilter) ([]model
 		FROM jobs
 	`)
 
-	if strings.TrimSpace(filter.Status) != "" {
-		args = append(args, strings.TrimSpace(filter.Status))
-		conditions = append(conditions, fmt.Sprintf("status = $%d", len(args)))
-	}
-
-	if filter.SourceID != nil {
-		args = append(args, *filter.SourceID)
-		conditions = append(conditions, fmt.Sprintf("source_id = $%d", len(args)))
-	}
-
-	if filter.CreatedFrom != nil {
-		args = append(args, *filter.CreatedFrom)
-		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", len(args)))
-	}
-
-	if filter.CreatedTo != nil {
-		args = append(args, *filter.CreatedTo)
-		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", len(args)))
-	}
-
 	if len(conditions) > 0 {
 		queryBuilder.WriteString(" WHERE ")
 		queryBuilder.WriteString(strings.Join(conditions, " AND "))
 	}
 
-	queryBuilder.WriteString(" ORDER BY created_at DESC, id DESC")
+	totalCount, err := r.countList(ctx, conditions, args)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	queryBuilder.WriteString(" ORDER BY posted_at DESC, id DESC")
 
 	limit := filter.Limit
 	if limit <= 0 {
@@ -263,12 +251,12 @@ func (r *JobRepository) List(ctx context.Context, filter JobListFilter) ([]model
 		limit = 500
 	}
 
-	args = append(args, limit)
-	queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", len(args)))
+	queryArgs := append(append([]any{}, args...), limit)
+	queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", len(queryArgs)))
 
-	rows, err := r.db.QueryContext(ctx, queryBuilder.String(), args...)
+	rows, err := r.db.QueryContext(ctx, queryBuilder.String(), queryArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("query jobs: %w", err)
+		return nil, 0, fmt.Errorf("query jobs: %w", err)
 	}
 	defer rows.Close()
 
@@ -302,17 +290,101 @@ func (r *JobRepository) List(ctx context.Context, filter JobListFilter) ([]model
 			&job.CreatedAt,
 			&job.UpdatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("scan jobs: %w", err)
+			return nil, 0, fmt.Errorf("scan jobs: %w", err)
 		}
 
 		jobs = append(jobs, job)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate jobs: %w", err)
+		return nil, 0, fmt.Errorf("iterate jobs: %w", err)
 	}
 
-	return jobs, nil
+	return jobs, totalCount, nil
+}
+
+func (r *JobRepository) ListCategories(ctx context.Context) ([]models.JobCategoryStat, int, error) {
+	if r.db == nil {
+		return []models.JobCategoryStat{}, 0, nil
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			TRIM(category) AS category,
+			COUNT(*) AS job_count
+		FROM jobs
+		WHERE NULLIF(TRIM(category), '') IS NOT NULL
+		GROUP BY TRIM(category)
+		ORDER BY category ASC
+	`)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query job categories: %w", err)
+	}
+	defer rows.Close()
+
+	categories := make([]models.JobCategoryStat, 0)
+	for rows.Next() {
+		var category models.JobCategoryStat
+		if err := rows.Scan(&category.Category, &category.JobCount); err != nil {
+			return nil, 0, fmt.Errorf("scan job category: %w", err)
+		}
+
+		categories = append(categories, category)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate job categories: %w", err)
+	}
+
+	return categories, len(categories), nil
+}
+
+func (r *JobRepository) countList(ctx context.Context, conditions []string, args []any) (int, error) {
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString("SELECT COUNT(*) FROM jobs")
+	if len(conditions) > 0 {
+		queryBuilder.WriteString(" WHERE ")
+		queryBuilder.WriteString(strings.Join(conditions, " AND "))
+	}
+
+	var totalCount int
+	if err := r.db.QueryRowContext(ctx, queryBuilder.String(), args...).Scan(&totalCount); err != nil {
+		return 0, fmt.Errorf("count jobs: %w", err)
+	}
+
+	return totalCount, nil
+}
+
+func buildJobListConditions(filter JobListFilter) ([]string, []any) {
+	args := make([]any, 0)
+	conditions := make([]string, 0)
+
+	if strings.TrimSpace(filter.Search) != "" {
+		searchPattern := "%" + strings.ToLower(strings.TrimSpace(filter.Search)) + "%"
+		args = append(args, searchPattern)
+		conditions = append(conditions, fmt.Sprintf("LOWER(title) LIKE $%d", len(args)))
+	}
+	if strings.TrimSpace(filter.Status) != "" {
+		args = append(args, strings.TrimSpace(filter.Status))
+		conditions = append(conditions, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if strings.TrimSpace(filter.Category) != "" {
+		args = append(args, strings.ToLower(strings.TrimSpace(filter.Category)))
+		conditions = append(conditions, fmt.Sprintf("LOWER(TRIM(category)) = $%d", len(args)))
+	}
+	if filter.SourceID != nil {
+		args = append(args, *filter.SourceID)
+		conditions = append(conditions, fmt.Sprintf("source_id = $%d", len(args)))
+	}
+	if filter.CreatedFrom != nil {
+		args = append(args, *filter.CreatedFrom)
+		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", len(args)))
+	}
+	if filter.CreatedTo != nil {
+		args = append(args, *filter.CreatedTo)
+		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", len(args)))
+	}
+
+	return conditions, args
 }
 
 func (r *JobRepository) UpdateNormalized(ctx context.Context, job models.Job) error {

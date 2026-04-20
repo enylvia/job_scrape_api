@@ -23,9 +23,11 @@ type App struct {
 	SourceRepository     *repository.SourceRepository
 	JobRepository        *repository.JobRepository
 	JobRawDataRepository *repository.JobRawDataRepository
+	ScrapeMetricRepo     *repository.ScrapeRunMetricRepository
 	PipelineService      *pipeline.Service
 	HealthHandler        *transporthandlers.HealthHandler
 	JobHandler           *transporthandlers.JobHandler
+	ScrapeMetricHandler  *transporthandlers.ScrapeMetricHandler
 	SourceHandler        *transporthandlers.SourceHandler
 	WorkerHandler        *transporthandlers.WorkerHandler
 	Server               *http.Server
@@ -47,13 +49,15 @@ func NewApp() (*App, error) {
 	sourceRepo := repository.NewSourceRepository(db)
 	jobRepo := repository.NewJobRepository(db)
 	jobRawDataRepo := repository.NewJobRawDataRepository(db)
-	pipelineService := pipeline.NewService(logger, sourceRepo, jobRepo, jobRawDataRepo)
+	scrapeMetricRepo := repository.NewScrapeRunMetricRepository(db)
+	pipelineService := pipeline.NewService(logger, sourceRepo, jobRepo, jobRawDataRepo, scrapeMetricRepo)
 
 	healthHandler := transporthandlers.NewHealthHandler(cfg, db)
 	jobHandler := transporthandlers.NewJobHandler(logger, jobRepo)
+	scrapeMetricHandler := transporthandlers.NewScrapeMetricHandler(logger, scrapeMetricRepo)
 	sourceHandler := transporthandlers.NewSourceHandler(sourceRepo)
 	workerHandler := transporthandlers.NewWorkerHandler(logger, pipelineService)
-	router := transportroutes.New(healthHandler, jobHandler, sourceHandler, workerHandler)
+	router := transportroutes.New(logger, healthHandler, jobHandler, scrapeMetricHandler, sourceHandler, workerHandler)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.App.Port,
@@ -70,9 +74,11 @@ func NewApp() (*App, error) {
 		SourceRepository:     sourceRepo,
 		JobRepository:        jobRepo,
 		JobRawDataRepository: jobRawDataRepo,
+		ScrapeMetricRepo:     scrapeMetricRepo,
 		PipelineService:      pipelineService,
 		HealthHandler:        healthHandler,
 		JobHandler:           jobHandler,
+		ScrapeMetricHandler:  scrapeMetricHandler,
 		SourceHandler:        sourceHandler,
 		WorkerHandler:        workerHandler,
 		Server:               server,
