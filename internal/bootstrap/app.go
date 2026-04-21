@@ -11,6 +11,7 @@ import (
 	"job_aggregator/internal/database"
 	applogger "job_aggregator/internal/logger"
 	"job_aggregator/internal/repository"
+	"job_aggregator/internal/services/auth"
 	"job_aggregator/internal/services/pipeline"
 	transporthandlers "job_aggregator/internal/transport/http/handlers"
 	transportroutes "job_aggregator/internal/transport/http/routes"
@@ -20,13 +21,16 @@ type App struct {
 	Config               config.Config
 	Logger               *log.Logger
 	DB                   *sql.DB
+	AdminUserRepository  *repository.AdminUserRepository
 	AboutPageRepository  *repository.AboutPageRepository
 	SourceRepository     *repository.SourceRepository
 	JobRepository        *repository.JobRepository
 	JobRawDataRepository *repository.JobRawDataRepository
 	ScrapeMetricRepo     *repository.ScrapeRunMetricRepository
+	AuthService          *auth.Service
 	PipelineService      *pipeline.Service
 	HealthHandler        *transporthandlers.HealthHandler
+	AuthHandler          *transporthandlers.AuthHandler
 	AboutHandler         *transporthandlers.AboutHandler
 	JobHandler           *transporthandlers.JobHandler
 	ScrapeMetricHandler  *transporthandlers.ScrapeMetricHandler
@@ -48,20 +52,27 @@ func NewApp() (*App, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
+	adminUserRepo := repository.NewAdminUserRepository(db)
+	if err := adminUserRepo.EnsureBootstrapAdmin(context.Background(), cfg.Auth.AdminUsername, cfg.Auth.AdminPassword); err != nil {
+		return nil, fmt.Errorf("ensure bootstrap admin: %w", err)
+	}
+
 	aboutPageRepo := repository.NewAboutPageRepository(db)
 	sourceRepo := repository.NewSourceRepository(db)
 	jobRepo := repository.NewJobRepository(db)
 	jobRawDataRepo := repository.NewJobRawDataRepository(db)
 	scrapeMetricRepo := repository.NewScrapeRunMetricRepository(db)
+	authService := auth.NewService(cfg.Auth, adminUserRepo)
 	pipelineService := pipeline.NewService(logger, sourceRepo, jobRepo, jobRawDataRepo, scrapeMetricRepo)
 
 	healthHandler := transporthandlers.NewHealthHandler(cfg, db)
+	authHandler := transporthandlers.NewAuthHandler(logger, authService)
 	aboutHandler := transporthandlers.NewAboutHandler(logger, aboutPageRepo)
 	jobHandler := transporthandlers.NewJobHandler(logger, jobRepo)
 	scrapeMetricHandler := transporthandlers.NewScrapeMetricHandler(logger, scrapeMetricRepo)
 	sourceHandler := transporthandlers.NewSourceHandler(sourceRepo)
 	workerHandler := transporthandlers.NewWorkerHandler(logger, pipelineService)
-	router := transportroutes.New(logger, healthHandler, aboutHandler, jobHandler, scrapeMetricHandler, sourceHandler, workerHandler)
+	router := transportroutes.New(logger, cfg.CORS, authService, healthHandler, authHandler, aboutHandler, jobHandler, scrapeMetricHandler, sourceHandler, workerHandler)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.App.Port,
@@ -75,13 +86,16 @@ func NewApp() (*App, error) {
 		Config:               cfg,
 		Logger:               logger,
 		DB:                   db,
+		AdminUserRepository:  adminUserRepo,
 		AboutPageRepository:  aboutPageRepo,
 		SourceRepository:     sourceRepo,
 		JobRepository:        jobRepo,
 		JobRawDataRepository: jobRawDataRepo,
 		ScrapeMetricRepo:     scrapeMetricRepo,
+		AuthService:          authService,
 		PipelineService:      pipelineService,
 		HealthHandler:        healthHandler,
+		AuthHandler:          authHandler,
 		AboutHandler:         aboutHandler,
 		JobHandler:           jobHandler,
 		ScrapeMetricHandler:  scrapeMetricHandler,

@@ -4,12 +4,17 @@ import (
 	"log"
 	"net/http"
 
+	"job_aggregator/internal/config"
+	"job_aggregator/internal/services/auth"
 	"job_aggregator/internal/transport/http/handlers"
 )
 
 func New(
 	logger *log.Logger,
+	corsConfig config.CORSConfig,
+	authService *auth.Service,
 	healthHandler *handlers.HealthHandler,
+	authHandler *handlers.AuthHandler,
 	aboutHandler *handlers.AboutHandler,
 	jobHandler *handlers.JobHandler,
 	scrapeMetricHandler *handlers.ScrapeMetricHandler,
@@ -18,6 +23,8 @@ func New(
 ) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /health", healthHandler)
+	mux.HandleFunc("POST /internal/auth/login", authHandler.Login)
+	mux.HandleFunc("GET /internal/auth/me", authHandler.Me)
 	mux.HandleFunc("GET /internal/about", aboutHandler.List)
 	mux.HandleFunc("POST /internal/about", aboutHandler.Create)
 	mux.HandleFunc("GET /internal/about/{id}", aboutHandler.Get)
@@ -36,5 +43,5 @@ func New(
 	mux.HandleFunc("POST /internal/worker/run", workerHandler.Run)
 	mux.HandleFunc("GET /internal/worker/status", workerHandler.Status)
 
-	return loggingMiddleware(logger, mux)
+	return loggingMiddleware(logger, corsMiddleware(corsConfig, authMiddleware(authService, mux)))
 }

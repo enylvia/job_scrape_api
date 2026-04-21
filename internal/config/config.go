@@ -12,6 +12,8 @@ import (
 
 type Config struct {
 	App      AppConfig
+	Auth     AuthConfig
+	CORS     CORSConfig
 	Database DatabaseConfig
 }
 
@@ -22,6 +24,20 @@ type AppConfig struct {
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
+}
+
+type AuthConfig struct {
+	AdminUsername string
+	AdminPassword string
+	TokenSecret   string
+	TokenTTL      time.Duration
+}
+
+type CORSConfig struct {
+	AllowedOrigins []string
+	AllowedMethods []string
+	AllowedHeaders []string
+	MaxAge         int
 }
 
 type DatabaseConfig struct {
@@ -52,6 +68,18 @@ func Load() (Config, error) {
 			WriteTimeout: getEnvDuration("APP_WRITE_TIMEOUT", 10*time.Second),
 			IdleTimeout:  getEnvDuration("APP_IDLE_TIMEOUT", 30*time.Second),
 		},
+		Auth: AuthConfig{
+			AdminUsername: getEnv("ADMIN_USERNAME", ""),
+			AdminPassword: getEnv("ADMIN_PASSWORD", ""),
+			TokenSecret:   getEnv("ADMIN_TOKEN_SECRET", ""),
+			TokenTTL:      getEnvDuration("ADMIN_TOKEN_TTL", 12*time.Hour),
+		},
+		CORS: CORSConfig{
+			AllowedOrigins: getEnvCSV("CORS_ALLOWED_ORIGINS", defaultCORSOrigins(getEnv("APP_ENV", "development"))),
+			AllowedMethods: getEnvCSV("CORS_ALLOWED_METHODS", []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"}),
+			AllowedHeaders: getEnvCSV("CORS_ALLOWED_HEADERS", []string{"Authorization", "Content-Type"}),
+			MaxAge:         getEnvInt("CORS_MAX_AGE", 600),
+		},
 		Database: DatabaseConfig{
 			Enabled:         getEnvBool("DB_ENABLED", false),
 			Host:            getEnv("DB_HOST", "127.0.0.1"),
@@ -69,6 +97,26 @@ func Load() (Config, error) {
 
 	if cfg.App.Port == "" {
 		return Config{}, fmt.Errorf("APP_PORT must not be empty")
+	}
+	if cfg.Auth.AdminUsername == "" {
+		return Config{}, fmt.Errorf("ADMIN_USERNAME must not be empty")
+	}
+	if cfg.Auth.AdminPassword == "" {
+		return Config{}, fmt.Errorf("ADMIN_PASSWORD must not be empty")
+	}
+	if cfg.Auth.TokenSecret == "" {
+		return Config{}, fmt.Errorf("ADMIN_TOKEN_SECRET must not be empty")
+	}
+	if cfg.Auth.TokenTTL <= 0 {
+		return Config{}, fmt.Errorf("ADMIN_TOKEN_TTL must be positive")
+	}
+	if cfg.App.Environment == "production" && len(cfg.CORS.AllowedOrigins) == 0 {
+		return Config{}, fmt.Errorf("CORS_ALLOWED_ORIGINS must be set in production")
+	}
+	for _, origin := range cfg.CORS.AllowedOrigins {
+		if cfg.App.Environment == "production" && origin == "*" {
+			return Config{}, fmt.Errorf("CORS_ALLOWED_ORIGINS must not contain * in production")
+		}
 	}
 
 	return cfg, nil
@@ -169,4 +217,35 @@ func getEnvDuration(key string, fallback time.Duration) time.Duration {
 	}
 
 	return parsed
+}
+
+func getEnvCSV(key string, fallback []string) []string {
+	value := getEnv(key, "")
+	if value == "" {
+		return fallback
+	}
+
+	parts := strings.Split(value, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			values = append(values, part)
+		}
+	}
+
+	return values
+}
+
+func defaultCORSOrigins(environment string) []string {
+	if environment == "production" {
+		return nil
+	}
+
+	return []string{
+		"http://localhost:3000",
+		"http://localhost:5173",
+		"http://127.0.0.1:3000",
+		"http://127.0.0.1:5173",
+	}
 }

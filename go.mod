@@ -6,6 +6,7 @@ require (
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/playwright-community/playwright-go v0.5700.1
+	golang.org/x/crypto v0.49.0
 )
 
 require (
