@@ -110,6 +110,20 @@ func Load() (Config, error) {
 	if cfg.Auth.TokenTTL <= 0 {
 		return Config{}, fmt.Errorf("ADMIN_TOKEN_TTL must be positive")
 	}
+	if cfg.App.Environment == "production" {
+		if len(cfg.Auth.AdminPassword) < 12 {
+			return Config{}, fmt.Errorf("ADMIN_PASSWORD must be at least 12 characters in production")
+		}
+		if len(cfg.Auth.TokenSecret) < 64 {
+			return Config{}, fmt.Errorf("ADMIN_TOKEN_SECRET must be at least 64 characters in production")
+		}
+		if cfg.Auth.TokenTTL > 8*time.Hour {
+			return Config{}, fmt.Errorf("ADMIN_TOKEN_TTL must be 8h or less in production")
+		}
+		if cfg.Database.Enabled && strings.EqualFold(cfg.Database.SSLMode, "disable") {
+			return Config{}, fmt.Errorf("DB_SSLMODE must not be disable in production")
+		}
+	}
 	if cfg.App.Environment == "production" && len(cfg.CORS.AllowedOrigins) == 0 {
 		return Config{}, fmt.Errorf("CORS_ALLOWED_ORIGINS must be set in production")
 	}

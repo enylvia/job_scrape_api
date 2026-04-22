@@ -43,6 +43,16 @@ func loggingMiddleware(logger *log.Logger, next http.Handler) http.Handler {
 	})
 }
 
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func corsMiddleware(cfg config.CORSConfig, next http.Handler) http.Handler {
 	allowedOrigins := make(map[string]struct{}, len(cfg.AllowedOrigins))
 	for _, origin := range cfg.AllowedOrigins {
@@ -88,6 +98,19 @@ func corsMiddleware(cfg config.CORSConfig, next http.Handler) http.Handler {
 func authMiddleware(authService *auth.Service, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !requiresAdminAuth(r) {
+			if isPublicInternalEndpoint(r) {
+				token := authService.ExtractBearerToken(r.Header.Get("Authorization"))
+				if token != "" {
+					claims, err := authService.ValidateToken(token, time.Now())
+					if err != nil {
+						writeAuthError(w, http.StatusUnauthorized, "authentication required")
+						return
+					}
+
+					r = r.WithContext(authService.WithClaims(r.Context(), claims))
+				}
+			}
+
 			next.ServeHTTP(w, r)
 			return
 		}

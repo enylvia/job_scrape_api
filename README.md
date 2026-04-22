@@ -78,12 +78,18 @@ Untuk admin panel, set credential bootstrap dan token secret berikut di `.env`:
 
 ```bash
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=change-me
-ADMIN_TOKEN_SECRET=change-me-to-a-long-random-secret
-ADMIN_TOKEN_TTL=12h
+ADMIN_PASSWORD=change-me-to-a-strong-password
+ADMIN_TOKEN_SECRET=change-me-to-a-long-random-secret-at-least-64-characters-long
+ADMIN_TOKEN_TTL=4h
 ```
 
 Saat API start dengan database aktif dan tabel `admin_users` masih kosong, aplikasi akan membuat admin pertama dari `ADMIN_USERNAME` dan `ADMIN_PASSWORD`. Password disimpan sebagai bcrypt hash, bukan plain text. Setelah admin user sudah ada, nilai username/password bootstrap tidak akan menimpa data di database.
+
+Saat `APP_ENV=production`, aplikasi akan menolak start jika:
+- `ADMIN_PASSWORD` kurang dari 12 karakter
+- `ADMIN_TOKEN_SECRET` kurang dari 64 karakter
+- `ADMIN_TOKEN_TTL` lebih dari 8 jam
+- `DB_SSLMODE=disable` saat database aktif
 
 Untuk production, set CORS origin secara eksplisit sesuai domain frontend:
 
@@ -145,9 +151,14 @@ Semua endpoint internal menggunakan format response berikut:
 Catatan:
 - `count` adalah total data dari DAO/repository, jadi bisa dipakai frontend untuk pagination
 - `data` bisa berupa object tunggal, list, atau `null`
-- semua endpoint `/internal/*` wajib `Authorization: Bearer <admin_token>`, kecuali `POST /internal/auth/login`
+- endpoint admin/mutasi `/internal/*` wajib `Authorization: Bearer <admin_token>`, kecuali `POST /internal/auth/login`
+- public job endpoints tanpa token hanya mengembalikan job `approved` atau `published`
+- public job response memakai DTO aman dan tidak mengekspos field internal seperti `content_hash`, `status`, `wordpress_post_id`, atau `telegram_sent`
+- login admin memiliki rate limit dasar untuk menahan brute-force
 
 Endpoint internal utama yang aktif saat ini:
+- `POST /analytics/events`
+- `GET /internal/analytics/summary`
 - `POST /internal/auth/login`
 - `GET /internal/auth/me`
 - `GET /internal/about`
@@ -196,3 +207,49 @@ curl "http://localhost:8080/internal/jobs/categories" \
 curl "http://localhost:8080/internal/worker/scrape-health" \
   -H "Authorization: Bearer <admin_token>"
 ```
+
+## Analytics MVP
+
+Frontend end-user bisa mengirim event analytics tanpa login:
+
+```bash
+curl -X POST "http://localhost:8080/analytics/events" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_name": "job_view",
+    "visitor_id": "anonymous-visitor-id",
+    "session_id": "browser-session-id",
+    "path": "/jobs/123",
+    "job_id": 123,
+    "metadata": {
+      "category": "Engineering",
+      "work_type": "remote"
+    }
+  }'
+```
+
+Event yang didukung:
+- `page_view`
+- `job_view`
+- `search_performed`
+- `filter_used`
+- `apply_clicked`
+- `category_clicked`
+- `newsletter_interest`
+
+Admin dashboard bisa membaca summary:
+
+```bash
+curl "http://localhost:8080/internal/analytics/summary?limit=5" \
+  -H "Authorization: Bearer <admin_token>"
+```
+
+Summary berisi:
+- `visitors_today`
+- `page_views_today`
+- `job_views_today`
+- `apply_clicks_today`
+- `searches_today`
+- `conversion_rate`
+- `top_viewed_jobs`
+- `top_search_keywords`

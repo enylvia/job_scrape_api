@@ -14,6 +14,7 @@ import (
 
 type JobListFilter struct {
 	Status      string
+	Statuses    []string
 	Search      string
 	Category    string
 	Location    string
@@ -329,20 +330,45 @@ func (r *JobRepository) List(ctx context.Context, filter JobListFilter) ([]model
 	return jobs, totalCount, nil
 }
 
-func (r *JobRepository) ListCategories(ctx context.Context) ([]models.JobCategoryStat, int, error) {
+func (r *JobRepository) ListCategories(ctx context.Context, statuses []string) ([]models.JobCategoryStat, int, error) {
 	if r.db == nil {
 		return []models.JobCategoryStat{}, 0, nil
 	}
 
-	rows, err := r.db.QueryContext(ctx, `
+	args := make([]any, 0, len(statuses))
+	conditions := make([]string, 0, 2)
+	conditions = append(conditions, "NULLIF(TRIM(category), '') IS NOT NULL")
+	statusConditions := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		status = strings.TrimSpace(status)
+		if status == "" {
+			continue
+		}
+
+		args = append(args, status)
+		statusConditions = append(statusConditions, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if len(statusConditions) > 0 {
+		conditions = append(conditions, "("+strings.Join(statusConditions, " OR ")+")")
+	}
+
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString(`
 		SELECT
 			TRIM(category) AS category,
 			COUNT(*) AS job_count
 		FROM jobs
-		WHERE NULLIF(TRIM(category), '') IS NOT NULL
+	`)
+	if len(conditions) > 0 {
+		queryBuilder.WriteString(" WHERE ")
+		queryBuilder.WriteString(strings.Join(conditions, " AND "))
+	}
+	queryBuilder.WriteString(`
 		GROUP BY TRIM(category)
 		ORDER BY category ASC
 	`)
+
+	rows, err := r.db.QueryContext(ctx, queryBuilder.String(), args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query job categories: %w", err)
 	}
@@ -404,6 +430,21 @@ func buildJobListConditions(filter JobListFilter) ([]string, []any) {
 	if strings.TrimSpace(filter.Status) != "" {
 		args = append(args, strings.TrimSpace(filter.Status))
 		conditions = append(conditions, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if len(filter.Statuses) > 0 {
+		statusConditions := make([]string, 0, len(filter.Statuses))
+		for _, status := range filter.Statuses {
+			status = strings.TrimSpace(status)
+			if status == "" {
+				continue
+			}
+
+			args = append(args, status)
+			statusConditions = append(statusConditions, fmt.Sprintf("status = $%d", len(args)))
+		}
+		if len(statusConditions) > 0 {
+			conditions = append(conditions, "("+strings.Join(statusConditions, " OR ")+")")
+		}
 	}
 	if strings.TrimSpace(filter.Category) != "" {
 		args = append(args, normalizeCategoryComparable(filter.Category))

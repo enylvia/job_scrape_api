@@ -14,6 +14,7 @@ func New(
 	corsConfig config.CORSConfig,
 	authService *auth.Service,
 	healthHandler *handlers.HealthHandler,
+	analyticsHandler *handlers.AnalyticsHandler,
 	authHandler *handlers.AuthHandler,
 	aboutHandler *handlers.AboutHandler,
 	jobHandler *handlers.JobHandler,
@@ -23,6 +24,8 @@ func New(
 ) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /health", healthHandler)
+	mux.HandleFunc("POST /analytics/events", analyticsHandler.TrackEvent)
+	mux.HandleFunc("GET /internal/analytics/summary", analyticsHandler.GetSummary)
 	mux.HandleFunc("POST /internal/auth/login", authHandler.Login)
 	mux.HandleFunc("GET /internal/auth/me", authHandler.Me)
 	mux.HandleFunc("GET /internal/about", aboutHandler.List)
@@ -43,5 +46,5 @@ func New(
 	mux.HandleFunc("POST /internal/worker/run", workerHandler.Run)
 	mux.HandleFunc("GET /internal/worker/status", workerHandler.Status)
 
-	return loggingMiddleware(logger, corsMiddleware(corsConfig, authMiddleware(authService, mux)))
+	return loggingMiddleware(logger, securityHeadersMiddleware(corsMiddleware(corsConfig, authMiddleware(authService, mux))))
 }

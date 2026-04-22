@@ -22,6 +22,7 @@ type App struct {
 	Logger               *log.Logger
 	DB                   *sql.DB
 	AdminUserRepository  *repository.AdminUserRepository
+	AnalyticsRepository  *repository.AnalyticsRepository
 	AboutPageRepository  *repository.AboutPageRepository
 	SourceRepository     *repository.SourceRepository
 	JobRepository        *repository.JobRepository
@@ -30,6 +31,7 @@ type App struct {
 	AuthService          *auth.Service
 	PipelineService      *pipeline.Service
 	HealthHandler        *transporthandlers.HealthHandler
+	AnalyticsHandler     *transporthandlers.AnalyticsHandler
 	AuthHandler          *transporthandlers.AuthHandler
 	AboutHandler         *transporthandlers.AboutHandler
 	JobHandler           *transporthandlers.JobHandler
@@ -58,6 +60,7 @@ func NewApp() (*App, error) {
 	}
 
 	aboutPageRepo := repository.NewAboutPageRepository(db)
+	analyticsRepo := repository.NewAnalyticsRepository(db)
 	sourceRepo := repository.NewSourceRepository(db)
 	jobRepo := repository.NewJobRepository(db)
 	jobRawDataRepo := repository.NewJobRawDataRepository(db)
@@ -66,13 +69,14 @@ func NewApp() (*App, error) {
 	pipelineService := pipeline.NewService(logger, sourceRepo, jobRepo, jobRawDataRepo, scrapeMetricRepo)
 
 	healthHandler := transporthandlers.NewHealthHandler(cfg, db)
+	analyticsHandler := transporthandlers.NewAnalyticsHandler(logger, analyticsRepo)
 	authHandler := transporthandlers.NewAuthHandler(logger, authService)
 	aboutHandler := transporthandlers.NewAboutHandler(logger, aboutPageRepo)
 	jobHandler := transporthandlers.NewJobHandler(logger, jobRepo)
 	scrapeMetricHandler := transporthandlers.NewScrapeMetricHandler(logger, scrapeMetricRepo)
 	sourceHandler := transporthandlers.NewSourceHandler(sourceRepo)
 	workerHandler := transporthandlers.NewWorkerHandler(logger, pipelineService)
-	router := transportroutes.New(logger, cfg.CORS, authService, healthHandler, authHandler, aboutHandler, jobHandler, scrapeMetricHandler, sourceHandler, workerHandler)
+	router := transportroutes.New(logger, cfg.CORS, authService, healthHandler, analyticsHandler, authHandler, aboutHandler, jobHandler, scrapeMetricHandler, sourceHandler, workerHandler)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.App.Port,
@@ -87,6 +91,7 @@ func NewApp() (*App, error) {
 		Logger:               logger,
 		DB:                   db,
 		AdminUserRepository:  adminUserRepo,
+		AnalyticsRepository:  analyticsRepo,
 		AboutPageRepository:  aboutPageRepo,
 		SourceRepository:     sourceRepo,
 		JobRepository:        jobRepo,
@@ -95,6 +100,7 @@ func NewApp() (*App, error) {
 		AuthService:          authService,
 		PipelineService:      pipelineService,
 		HealthHandler:        healthHandler,
+		AnalyticsHandler:     analyticsHandler,
 		AuthHandler:          authHandler,
 		AboutHandler:         aboutHandler,
 		JobHandler:           jobHandler,

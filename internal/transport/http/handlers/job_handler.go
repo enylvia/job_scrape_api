@@ -15,6 +15,7 @@ import (
 	"job_aggregator/internal/enums"
 	"job_aggregator/internal/models"
 	"job_aggregator/internal/repository"
+	"job_aggregator/internal/services/auth"
 )
 
 var slugTokenPattern = regexp.MustCompile(`[^a-z0-9]+`)
@@ -40,6 +41,28 @@ type updateJobRequest struct {
 	ExpiredAt              *string `json:"expired_at"`
 }
 
+type publicJobResponse struct {
+	ID                     int64      `json:"id"`
+	SourceJobURL           string     `json:"source_job_url"`
+	SourceApplyURL         string     `json:"source_apply_url"`
+	Title                  string     `json:"title"`
+	Slug                   string     `json:"slug"`
+	Company                string     `json:"company"`
+	CompanyProfileImageURL string     `json:"company_profile_image_url"`
+	Location               string     `json:"location"`
+	EmploymentType         string     `json:"employment_type"`
+	WorkType               string     `json:"work_type"`
+	Category               string     `json:"category"`
+	SalaryMin              *int64     `json:"salary_min,omitempty"`
+	SalaryMax              *int64     `json:"salary_max,omitempty"`
+	Currency               string     `json:"currency"`
+	Description            string     `json:"description"`
+	Requirements           string     `json:"requirements"`
+	Benefits               string     `json:"benefits"`
+	PostedAt               *time.Time `json:"posted_at,omitempty"`
+	ExpiredAt              *time.Time `json:"expired_at,omitempty"`
+}
+
 func NewJobHandler(logger *log.Logger, jobRepo *repository.JobRepository) *JobHandler {
 	return &JobHandler{
 		logger:  logger,
@@ -48,10 +71,18 @@ func NewJobHandler(logger *log.Logger, jobRepo *repository.JobRepository) *JobHa
 }
 
 func (h *JobHandler) List(w http.ResponseWriter, r *http.Request) {
+	isAdmin := isAdminRequest(r)
 	filter, err := parseJobListFilter(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if !isAdmin {
+		filter.Status = ""
+		filter.Statuses = publicJobStatuses()
+		filter.SourceID = nil
+		filter.CreatedFrom = nil
+		filter.CreatedTo = nil
 	}
 
 	jobs, totalCount, err := h.jobRepo.List(r.Context(), filter)
@@ -61,11 +92,21 @@ func (h *JobHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !isAdmin {
+		writeData(w, http.StatusOK, "jobs fetched successfully", totalCount, toPublicJobs(jobs))
+		return
+	}
+
 	writeData(w, http.StatusOK, "jobs fetched successfully", totalCount, jobs)
 }
 
 func (h *JobHandler) ListCategories(w http.ResponseWriter, r *http.Request) {
-	categories, totalCount, err := h.jobRepo.ListCategories(r.Context())
+	statuses := []string(nil)
+	if !isAdminRequest(r) {
+		statuses = publicJobStatuses()
+	}
+
+	categories, totalCount, err := h.jobRepo.ListCategories(r.Context(), statuses)
 	if err != nil {
 		h.logger.Printf("job handler: list categories error=%v", err)
 		writeError(w, http.StatusInternalServerError, "failed to list job categories")
@@ -76,6 +117,7 @@ func (h *JobHandler) ListCategories(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *JobHandler) Get(w http.ResponseWriter, r *http.Request) {
+	isAdmin := isAdminRequest(r)
 	jobID, err := parseJobID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -91,6 +133,15 @@ func (h *JobHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 		h.logger.Printf("job handler: get job id=%d error=%v", jobID, err)
 		writeError(w, http.StatusInternalServerError, "failed to get job detail")
+		return
+	}
+
+	if !isAdmin && !isPublicJobStatus(job.Status) {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+	if !isAdmin {
+		writeData(w, http.StatusOK, "job detail fetched successfully", 1, toPublicJob(job))
 		return
 	}
 
@@ -352,4 +403,59 @@ func slugify(value string) string {
 	value = slugTokenPattern.ReplaceAllString(value, "-")
 	value = strings.Trim(value, "-")
 	return value
+}
+
+func isAdminRequest(r *http.Request) bool {
+	_, ok := auth.ClaimsFromContext(r.Context())
+	return ok
+}
+
+func publicJobStatuses() []string {
+	return []string{
+		string(enums.JobStatusApproved),
+		string(enums.JobStatusPublished),
+	}
+}
+
+func isPublicJobStatus(status string) bool {
+	for _, publicStatus := range publicJobStatuses() {
+		if status == publicStatus {
+			return true
+		}
+	}
+
+	return false
+}
+
+func toPublicJobs(jobs []models.Job) []publicJobResponse {
+	responses := make([]publicJobResponse, 0, len(jobs))
+	for _, job := range jobs {
+		responses = append(responses, toPublicJob(job))
+	}
+
+	return responses
+}
+
+func toPublicJob(job models.Job) publicJobResponse {
+	return publicJobResponse{
+		ID:                     job.ID,
+		SourceJobURL:           job.SourceJobURL,
+		SourceApplyURL:         job.SourceApplyURL,
+		Title:                  job.Title,
+		Slug:                   job.Slug,
+		Company:                job.Company,
+		CompanyProfileImageURL: job.CompanyProfileImageURL,
+		Location:               job.Location,
+		EmploymentType:         job.EmploymentType,
+		WorkType:               job.WorkType,
+		Category:               job.Category,
+		SalaryMin:              job.SalaryMin,
+		SalaryMax:              job.SalaryMax,
+		Currency:               job.Currency,
+		Description:            job.Description,
+		Requirements:           job.Requirements,
+		Benefits:               job.Benefits,
+		PostedAt:               job.PostedAt,
+		ExpiredAt:              job.ExpiredAt,
+	}
 }
